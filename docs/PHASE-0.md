@@ -17,10 +17,16 @@ sans attendre l'interface.
 npm ci                                    # outillage de développement
 npm i -g @webosose/ares-cli               # outillage LG (ares-package, ares-install)
 npm run pack:webos                        # compile le service puis produit release/*.ipk
-ares-setup-device --list                  # TV en mode développeur : clé + IP
+
+# sur la TV : mode développeur activé (application « Developer Mode »), même compte LG que le CLI
+ares-setup-device --add tv --info "host=<IP de la TV>" --passphrase   # la TV affiche la phrase
+ares-device  --device tv --system-info                                # doit répondre : mode développeur visible
 ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.0_all.ipk
 ares-launch  --device tv com.ouagkamel.app.iptvplayer
 ```
+
+Le mode développeur **expire au bout de 1000 heures** : s'il tombe, `ares-install` répond
+`connection refused` — réactiver l'application Developer Mode sur la TV avant de conclure à un bug.
 
 `release/package/` contient la même arborescence, dépaquetée, pour inspection ; `release/` n'est pas
 versionné (l'`.ipk` est un artefact de build, jamais committé).
