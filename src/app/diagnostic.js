@@ -4,6 +4,9 @@
  * Coquille de diagnostic de la phase 0A — **page de test**, pas l'interface du produit.
  *
  * Elle n'utilise que les API webOS présentes sur la TV (`webOS.service.request`, `webOS.deviceInfo`)
+ * — fournies par `webos-bridge.js`, embarqué dans le paquet (la bibliothèque `webOSTV.js` du SDK LG
+ * n'est **pas** copiée dans le dépôt ; son absence dans le paquet a produit un
+ * `net::ERR_FILE_NOT_FOUND` dans la console de la TV et laissait `window.webOS` vide) —
  * et les onze commandes du service. Son but : prouver sur un téléviseur réel que le service est
  * joignable en LS2, que ses commandes non publiques répondent, que DB8 est accessible avec les
  * bonnes permissions et que le répertoire privé du service est inscriptible.
@@ -51,53 +54,164 @@ function afficherErreur(titre, erreur) {
 }
 
 /**
- * Appel LS2. Deux chemins : `webOS.service.request` (fourni par `webOSTV.js`, la voie normale) et
- * `PalmServiceBridge` (le pont bas niveau, toujours présent sur la TV) — si la bibliothèque
- * `webOSTV.js` n'est pas injectée par la plateforme, la page reste utilisable.
+ * Appel LS2. Un seul chemin : `webOS.service.request` — fourni par la plateforme quand elle
+ * l'injecte, sinon par `webos-bridge.js` embarqué (pont `PalmServiceBridge`). La page n'a donc
+ * jamais besoin d'un fichier absent du paquet.
+ *
+ * `options.abonnement` : la réponse peut arriver plusieurs fois (`importPlaylist`) ; `onFailure` est
+ * appelé pour toute réponse `returnValue: false`, avec le message brut du bus — c'est ce message qui
+ * est affiché tel quel, jamais reformulé, pour que le diagnostic sur la TV soit exploitable.
  */
 function appeler(commande, parametres, options) {
   options = options || {};
   var charge = parametres || {};
   return new Promise(function (resolve, reject) {
     var api = window.webOS && window.webOS.service ? window.webOS.service : null;
-    if (api && api.request) {
-      var requete = {
-        method: commande,
-        parameters: charge,
-        onSuccess: function (reponse) {
-          if (options.abonnement && options.aChaqueReponse) options.aChaqueReponse(reponse);
+    if (!api || typeof api.request !== 'function') {
+      reject(new Error('aucun pont LS2 disponible : cette page doit s’exécuter sur la TV (ou le simulateur LG)'));
+      return;
+    }
+    var fourni = false;
+    api.request(SERVICE, {
+      method: commande,
+      parameters: charge,
+      subscribe: options.abonnement === true,
+      onSuccess: function (reponse) {
+        if (options.aChaqueReponse) options.aChaqueReponse(reponse);
+        // la promesse se règle sur la première réponse (comme `onSuccess` de la bibliothèque LG) ;
+        // en abonnement, les réponses suivantes passent par `aChaqueReponse`
+        if (!fourni) {
+          fourni = true;
           resolve(reponse);
-        },
-        onFailure: function (erreur) {
+        }
+      },
+      onFailure: function (erreur) {
+        if (options.aChaqueReponse) options.aChaqueReponse(erreur);
+        if (!fourni) {
+          fourni = true;
           reject(erreur);
         }
-      };
-      if (options.abonnement) requete.subscribe = true;
-      api.request(SERVICE, requete);
+      }
+    });
+  });
+}
+
+/** Message brut d'une réponse ou d'une erreur LS2, sans reformulation. */
+function texteBrut(valeur) {
+  if (!valeur) return String(valeur);
+  if (typeof valeur === 'string') return valeur;
+  return valeur.errorText || valeur.message || JSON.stringify(valeur);
+}
+
+/** L'environnement réel de la page : c'est ce tableau qui dit s'il manque un pont ou un fichier. */
+function environnement() {
+  var pont = window.webOS && window.webOS.__pont ? window.webOS.__pont : null;
+  return {
+    adresse: String(window.location.href),
+    agent: navigator.userAgent,
+    pont: pont ? pont.chemin : window.webOS && window.webOS.service && window.webOS.service.request ? 'fourni (inconnu)' : 'aucun',
+    bridgeBasNiveau: typeof window.PalmServiceBridge === 'function',
+    palmSystem: !!(window.PalmSystem || window.palmSystem),
+    service: SERVICE,
+    versionPage: '0.1.2'
+  };
+}
+
+function afficherEnvironnement(details) {
+  var env = environnement();
+  var zone = el('pont');
+  var lignes = [
+    '<b>pont LS2</b> : ' + env.pont + (env.bridgeBasNiveau ? ' (PalmServiceBridge présent)' : ' (PalmServiceBridge absent)'),
+    '<b>PalmSystem</b> : ' + (env.palmSystem ? 'présent' : 'absent'),
+    '<b>service appelé</b> : ' + env.service,
+    '<b>page</b> : ' + env.adresse,
+    '<b>agent</b> : ' + env.agent
+  ];
+  if (details) lignes.push('<b>appareil</b> : ' + details);
+  zone.innerHTML = lignes.join('<br>');
+}
+
+/** Bannière rouge : cause lue dans le message brut du bus, plus les gestes à faire sur la TV. */
+function banniere(titre, texte, gestes) {
+  el('banniere-titre').textContent = titre;
+  var html = '<div style="font-size:15px;line-height:1.5">' + texte + '</div>';
+  if (gestes && gestes.length) {
+    html += '<ol>' + gestes.map(function (g) { return '<li>' + g + '</li>'; }).join('') + '</ol>';
+  }
+  el('banniere-texte').innerHTML = html;
+  el('banniere').className = 'banniere visible';
+}
+
+function masquerBanniere() {
+  el('banniere').className = 'banniere';
+}
+
+/**
+ * Appel de contrôle au démarrage : la première chose que la TV doit prouver. Si le bus répond
+ * « Service does not exist », le hub ne connaît pas le service : la bannière donne alors la
+ * séquence exacte à exécuter depuis le poste de développement.
+ */
+function controleInitial() {
+  journal('appel de contrôle : diagnostics');
+  return appeler('diagnostics', {})
+    .then(function (reponse) {
+      masquerBanniere();
+      afficher('diagnostics (contrôle initial)', reponse);
+      return true;
+    })
+    .catch(function (erreur) {
+      var brut = texteBrut(erreur);
+      if (/service does not exist/i.test(brut)) {
+        banniere(
+          'Le hub LS2 ne connaît pas le service',
+          'Réponse brute du bus : <code>' + brut + '</code> — le paquet installé contient le service ' +
+          '(dossier <code>usr/palm/services/com.ouagkamel.app.iptvplayer.service</code>), mais la TV ne ' +
+          'l’a pas enregistré. Trois gestes, dans cet ordre :',
+          [
+            'Vérifier la version réellement installée : <code>ares-install --device tv --listfull</code> ' +
+            '(il faut <code>0.1.2</code> ou plus : les versions précédentes démarraient le service derrière ' +
+            '<code>require.main === module</code>).',
+            'Désinstaller puis réinstaller, puis <b>redémarrer la TV</b> : l’enregistrement des services ' +
+            'est relu au démarrage — <code>ares-install -d tv -r com.ouagkamel.app.iptvplayer</code> puis ' +
+            '<code>ares-install -d tv com.ouagkamel.app.iptvplayer_0.1.2_all.ipk</code>.',
+            'Démarrer le service explicitement et lire son journal : ' +
+            '<code>ares-inspect -d tv -s com.ouagkamel.app.iptvplayer.service -o</code> — s’il démarre, ' +
+            'la console du service s’ouvre ; sinon le message d’erreur indique pourquoi.'
+          ]
+        );
+      } else {
+        banniere('Le service répond une erreur', 'Réponse brute : <code>' + brut + '</code>', []);
+      }
+      afficherErreur('diagnostics (contrôle initial)', erreur);
+      return false;
+    });
+}
+
+/**
+ * Témoin : un service **du système**. S'il répond, le pont de l'application fonctionne et le défaut
+ * est propre au service de l'application ; s'il échoue aussi, aucun appel LS2 ne sort de la page.
+ */
+function temoinBus() {
+  journal('témoin : luna://com.webos.service.tv.systemproperty/getSystemInfo');
+  return new Promise(function (resolve) {
+    var api = window.webOS && window.webOS.service ? window.webOS.service : null;
+    if (!api || typeof api.request !== 'function') {
+      afficherErreur('témoin du bus', 'aucun pont LS2 : la page ne peut pas appeler le bus');
+      resolve(false);
       return;
     }
-    if (typeof window.PalmServiceBridge === 'function') {
-      var pont = new window.PalmServiceBridge();
-      pont.onservicecallback = function (texte) {
-        var reponse;
-        try {
-          reponse = JSON.parse(texte);
-        } catch (erreur) {
-          reject(new Error('reponse LS2 illisible'));
-          return;
-        }
-        if (options.abonnement && options.aChaqueReponse) options.aChaqueReponse(reponse);
-        resolve(reponse);
-      };
-      var enveloppe = { };
-      Object.keys(charge).forEach(function (cle) {
-        enveloppe[cle] = charge[cle];
-      });
-      if (options.abonnement) enveloppe.subscribe = true;
-      pont.call(SERVICE + '/' + commande, JSON.stringify(enveloppe));
-      return;
-    }
-    reject(new Error('aucun pont LS2 disponible : cette page doit tourner sur la TV (ou le simulateur LG)'));
+    api.request('luna://com.webos.service.tv.systemproperty', {
+      method: 'getSystemInfo',
+      parameters: { keys: ['modelName', 'sdkVersion', 'firmwareVersion', 'boardType'] },
+      onSuccess: function (reponse) {
+        afficher('témoin du bus (réponse du système)', reponse);
+        resolve(true);
+      },
+      onFailure: function (erreur) {
+        afficherErreur('témoin du bus', erreur);
+        resolve(false);
+      }
+    });
   });
 }
 
@@ -116,15 +230,24 @@ function profilDepuisFormulaire() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
-  var info = {};
-  try {
-    info = (window.webOS && window.webOS.deviceInfo) ? window.webOS.deviceInfo() : {};
-  } catch (erreur) {
-    info = { erreur: String(erreur) };
+  afficherEnvironnement(null);
+  if (window.webOS && typeof window.webOS.deviceInfo === 'function') {
+    window.webOS.deviceInfo(function (info) {
+      info = info || {};
+      afficherEnvironnement(
+        'modèle ' + (info.modelName || '?') + ' · webOS ' + (info.version || info.firmwareVersion || '?') +
+        ' · SDK ' + (info.sdkVersion || '?')
+      );
+    });
   }
-  el('appareil').textContent =
-    'modèle ' + (info.modelName || '?') + ' · webOS ' + (info.version || '?') +
-    ' · SDK ' + (info.sdkVersion || '?') + ' · ' + (info.screenWidth || '?') + 'x' + (info.screenHeight || '?');
+
+  el('btn-temoin').onclick = function () { temoinBus(); };
+  el('btn-environnement').onclick = function () {
+    afficherEnvironnement(null);
+    journal('environnement actualisé');
+  };
+
+  controleInitial();
 
   el('btn-test').onclick = function () {
     var profil = profilDepuisFormulaire();

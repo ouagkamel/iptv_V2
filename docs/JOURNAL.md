@@ -1,5 +1,42 @@
 # Journal d'exécution
 
+## 2026-09-28 — Deuxième essai TV : pont LS2 absent du paquet (0.1.2)
+
+**Ce qui a été observé sur la TV** : même réponse `Service does not exist`, et dans la console de la
+page : `Failed to load resource: net::ERR_FILE_NOT_FOUND webOSTV.js`.
+
+**Défaut trouvé (défaut réel, indépendant du premier)** : `src/app/index.html` chargeait
+`webOSTV.js` — la bibliothèque du SDK LG — qui n'était **pas** dans le paquet. Console en erreur,
+`window.webOS` vide : la page n'avait plus aucun pont LS2, et il fallait un repli silencieux sur
+`PalmServiceBridge`. La documentation LG est explicite : cette bibliothèque **doit être incluse dans
+l'application** pour appeler un service webOS.
+
+| Réf. | Défaut | Correctif |
+|---|---|---|
+| **D-17** | `net::ERR_FILE_NOT_FOUND webOSTV.js`, `window.webOS` absent | `src/app/webos-bridge.js` : pont maison, sans dépendance, qui fournit `webOS.service.request` (sur `PalmServiceBridge`), `webOS.deviceInfo`, `webOS.platformBack` et un état `webOS.__pont` ; il **ne remplace jamais** un `webOS` fourni par la plateforme. La page ne référence plus aucun fichier externe ; un test vérifie que **toute ressource citée par la page existe dans le paquet** (c'est exactement la classe de défaut qui vient d'être rencontrée) |
+| **D-18** | Risque gratuit côté enregistrement | `services.json` et `package.json` du service réécrits en **ASCII pur** (descriptions sans accents) : le hub lit ce fichier pour enregistrer le service, un parseur qui ne suppose pas l'UTF-8 n'y verrait plus du JSON valide — soit exactement le symptôme « Service does not exist ». Test de non-régression sur les deux fichiers |
+
+**La page de diagnostic devient auto-explicative** : au chargement elle affiche l'environnement réel
+(pont retenu, présence de `PalmServiceBridge`/`PalmSystem`, nom du service appelé, agent) puis exécute
+un **appel de contrôle** ; si le bus répond « Service does not exist », une bannière donne la
+séquence exacte à exécuter depuis le poste de développement. Un bouton **Témoin du bus LS2**
+interroge un service *du système* : s'il répond, le pont fonctionne et le défaut est propre au
+service de l'application ; s'il échoue, aucun appel ne sort de la page. Le message brut du bus est
+toujours affiché tel quel, jamais reformulé.
+
+**Séquence à exécuter sur la TV** (elle est aussi affichée par la bannière) :
+
+```bash
+ares-install --device tv --listfull                                  # version réellement installée
+ares-install --device tv -r com.ouagkamel.app.iptvplayer             # désinstallation complète
+ares-install --device tv com.ouagkamel.app.iptvplayer_0.1.2_all.ipk  # réinstallation
+# redémarrer la TV (le hub relit ses services au démarrage), puis :
+ares-inspect --device tv -s com.ouagkamel.app.iptvplayer.service -o   # démarre le service et ouvre sa console
+```
+
+**Livraison** : version **0.1.2**, `npm test` → **154 tests, 0 échec** (Node 20 et Node 8.12),
+`npm run dist` → `dist/0.1.2/` + `dist/0.1.2.zip`, publication `v0.1.2-phase0a`.
+
 ## 2026-09-28 — Correctifs après premier essai TV + validation sur portail réel (0.1.1)
 
 **Ce qui a été observé sur la TV** : la page de diagnostic appelait le service et recevait

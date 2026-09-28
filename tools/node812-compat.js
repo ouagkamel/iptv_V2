@@ -53,7 +53,10 @@ var BANNED = [
 /** Modules Node autorisés dans l'artefact (tous présents en 8.12). */
 var ALLOWED_MODULES = [
   'crypto', 'fs', 'path', 'url', 'http', 'https', 'zlib', 'os', 'util', 'events', 'stream',
-  'net', 'tls', 'dns', 'querystring', 'string_decoder', 'assert', 'buffer', 'child_process'
+  'net', 'tls', 'dns', 'querystring', 'string_decoder', 'assert', 'buffer', 'child_process',
+  // `vm` n'est utilisé que par les tests (exécution du pont LS2 de la page dans un faux `window`) :
+  // module du cœur, présent en 8.12, jamais chargé par le service empaqueté.
+  'vm'
 ];
 
 /**

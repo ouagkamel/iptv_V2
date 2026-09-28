@@ -21,16 +21,32 @@ npm run pack:webos                        # compile le service puis produit rele
 # sur la TV : mode développeur activé (application « Developer Mode »), même compte LG que le CLI
 ares-setup-device --add tv --info "host=<IP de la TV>" --passphrase   # la TV affiche la phrase
 ares-device  --device tv --system-info                                # doit répondre : mode développeur visible
-ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.1_all.ipk
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.2_all.ipk
 ares-launch  --device tv com.ouagkamel.app.iptvplayer
 ```
 
 Le mode développeur **expire au bout de 1000 heures** : s'il tombe, `ares-install` répond
 `connection refused` — réactiver l'application Developer Mode sur la TV avant de conclure à un bug.
 
-**Si l'application répond « Service does not exist »** — la version `0.1.0` du paquet en souffrait
-(le service ne s'enregistrait jamais auprès du hub LS2, voir `docs/JOURNAL.md` D-09) : installer la
-version `0.1.1` ou suivante. Pour vérifier que le service est bien enregistré après installation :
+**Si l'application répond « Service does not exist »** — deux défauts du paquet ont produit ce
+message (voir `docs/JOURNAL.md` D-09 et D-17) : le service ne s'enregistrait pas quand la plateforme
+le chargeait par `require()`, et la page chargeait `webOSTV.js`, absent du paquet, si bien qu'aucun
+pont LS2 n'existait côté application. Les deux sont corrigés depuis la version **0.1.2**. Si le
+message persiste avec cette version, il vient de l'**enregistrement du service par la TV**, pas du
+paquet — la bannière de la page affiche alors la même séquence que ci-dessous :
+
+```bash
+ares-install --device tv --listfull                                  # version réellement installee
+ares-install --device tv -r com.ouagkamel.app.iptvplayer             # desinstallation complete
+ares-install --device tv com.ouagkamel.app.iptvplayer_0.1.2_all.ipk  # reinstallation
+# redemarrer la TV : le hub relit la liste de ses services au demarrage
+ares-inspect --device tv -s com.ouagkamel.app.iptvplayer.service -o   # lance le service et ouvre sa console
+```
+
+Bouton **Témoin du bus LS2** de la page : il interroge un service *du système*
+(`com.webos.service.tv.systemproperty`). S'il répond, le pont de l'application fonctionne et le
+défaut est propre au service ; s'il échoue aussi, aucun appel LS2 ne sort de la page. Pour vérifier
+que le service est bien enregistré après installation :
 
 ```bash
 ares-inspect --device tv --service com.ouagkamel.app.iptvplayer.service --open   # console du service

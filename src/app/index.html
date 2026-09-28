@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <title>Lecteur IPTV — diagnostic de service</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="webOSTV.js"></script>
 <style>
   :root {
     --fond: #0b1220;
@@ -41,6 +40,14 @@
   .rang { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .etat { font-size: 15px; color: var(--doux); }
   .aide { font-size: 13px; color: var(--doux); margin-top: 8px; line-height: 1.5; }
+  .banniere { display: none; background: #3a1620; border: 1px solid #b4453f; border-radius: 12px;
+    padding: 14px 18px; margin: 0 0 22px; }
+  .banniere.visible { display: block; }
+  .banniere h2 { color: #ffb3b3; }
+  .banniere ol { margin: 6px 0 0 22px; padding: 0; }
+  .banniere li { margin: 3px 0; font-size: 15px; line-height: 1.5; }
+  .etat-ligne { font-size: 15px; line-height: 1.6; }
+  .etat-ligne b { color: var(--texte); font-weight: 600; }
   code { color: var(--accent); }
 </style>
 </head>
@@ -49,11 +56,23 @@
   <p class="sous">Phase 0A : commandes LS2 du service, DB8, stockage privé, TLS. L'interface Enact
   arrive à l'étape 3 — cette page ne sert qu'à prouver le socle sur la TV.</p>
 
+  <div id="banniere" class="banniere">
+    <h2 id="banniere-titre">Le service ne répond pas</h2>
+    <div id="banniere-texte"></div>
+  </div>
+
   <div class="grille">
     <div>
       <div class="carte">
-        <h2>Appareil</h2>
-        <div id="appareil" class="etat">lecture…</div>
+        <h2>Pont LS2 et appareil</h2>
+        <div id="pont" class="etat-ligne">lecture…</div>
+        <div class="rang" style="margin-top:10px">
+          <button id="btn-temoin">Témoin du bus LS2</button>
+          <button id="btn-environnement">Actualiser l'environnement</button>
+        </div>
+        <div class="aide">Le témoin interroge un service <em>du système</em> (informations de la TV) :
+        s'il répond, le pont de l'application fonctionne et le problème vient du service de
+        l'application ; s'il échoue aussi, aucun appel LS2 ne sort de la page.</div>
       </div>
 
       <div class="carte">
@@ -118,6 +137,7 @@
     </div>
   </div>
 
+<script src="webos-bridge.js"></script>
 <script src="diagnostic.js"></script>
 </body>
 </html>
