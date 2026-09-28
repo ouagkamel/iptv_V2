@@ -88,6 +88,7 @@ function profileToRow(profile: Profile): Record<string, unknown> {
   if (profile.playlistUrl) row.playlistUrl = profile.playlistUrl;
   if (profile.epgUrl) row.epgUrl = profile.epgUrl;
   if (profile.lanAllowed) row.lanAllowed = true;
+  if (profile.userAgent) row.userAgent = profile.userAgent;
   if (profile.lastSyncAt !== undefined) row.lastSyncAt = profile.lastSyncAt;
   if (profile.persistSecrets === true) {
     if (profile.username !== undefined) row.username = profile.username;
@@ -113,6 +114,7 @@ function rowToProfile(row: Record<string, unknown>): Profile {
   if (row.playlistUrl) profile.playlistUrl = String(row.playlistUrl);
   if (row.epgUrl) profile.epgUrl = String(row.epgUrl);
   if (row.lanAllowed === true) profile.lanAllowed = true;
+  if (typeof row.userAgent === 'string' && row.userAgent !== '') profile.userAgent = row.userAgent;
   if (typeof row.lastSyncAt === 'number') profile.lastSyncAt = row.lastSyncAt;
   if (typeof row.username === 'string') profile.username = row.username;
   if (typeof row.password === 'string') profile.password = row.password;

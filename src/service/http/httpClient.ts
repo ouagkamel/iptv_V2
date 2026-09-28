@@ -30,6 +30,7 @@ import {
   MAX_REDIRECTS,
   type DnsAddress,
   type LookupFn,
+  type PinnedLookup,
   type PolicyContext
 } from './policy';
 
@@ -61,7 +62,8 @@ export interface TransportOptions {
   path: string;
   method: string;
   headers: Record<string, string>;
-  lookup?: (hostname: string, options: unknown, callback: (err: Error | null, address: string, family: number) => void) => void;
+  /** Signature de `net` : la forme de réponse dépend du Node appelant (voir `pinnedLookup`). */
+  lookup?: PinnedLookup;
   ca?: string;
   agent?: unknown;
 }
@@ -106,6 +108,8 @@ export interface HttpRequestOptions extends PolicyContext {
   maxBytes?: number;
   /** plafond de la charge utile **compressée** reçue */
   maxWireBytes?: number;
+  /** surcharge de l'en-tête `User-Agent` (certains portails et proxys CDN filtrent dessus) */
+  userAgent?: string;
   /** décompression gzip/deflate */
   decompress?: boolean;
   /** consomme le flux au fil de l'eau (sinon la réponse est accumulée dans `text`) */
@@ -286,6 +290,9 @@ export class HttpClient {
       headers[name] = requested[name];
     });
     if (!hasHeader(headers, 'accept')) headers['Accept'] = 'application/json, text/plain, */*';
+    // Identification du client : des portails (et des proxys CDN) refusent ou coupent toute requête
+    // sans `User-Agent` — constaté sur un portail réel en phase 0C. Surchargeable par profil.
+    if (!hasHeader(headers, 'user-agent')) headers['User-Agent'] = options.userAgent || DEFAULT_USER_AGENT;
     if (!hasHeader(headers, 'accept-encoding')) headers['Accept-Encoding'] = options.decompress === false ? 'identity' : 'gzip, deflate';
     if (options.rangeFrom !== undefined && options.rangeFrom > 0) {
       headers['Range'] = 'bytes=' + options.rangeFrom + '-';
@@ -369,6 +376,25 @@ export class HttpClient {
           let finished = false;
           const chunks: Buffer[] = [];
 
+          /**
+           * Clôt la requête. Quand un décompresseur est actif, il faut attendre son événement
+           * `end` : `zlib` décompresse de façon asynchrone, donc conclure dès la fin du flux réseau
+           * rendrait une charge utile **vide** (défaut constaté en 0C sur un portail réel qui répond
+           * en gzip).
+           */
+          const finalize = (): void => {
+            if (finished) return;
+            finished = true;
+            succeed({
+              status,
+              headers: headerMap,
+              bytes,
+              wireBytes,
+              text: options.onData ? undefined : Buffer.concat(chunks).toString('utf8'),
+              tls
+            });
+          };
+
           const decompressor = options.decompress === false ? null : createDecompressor(headerMap['content-encoding'], fail);
           if (decompressor) {
             decompressor.on('data', (chunk: Buffer) => {
@@ -421,16 +447,13 @@ export class HttpClient {
           response.on('data', onChunk as never);
           response.on('end', () => {
             if (finished) return;
-            finished = true;
-            if (decompressor) decompressor.end();
-            succeed({
-              status,
-              headers: headerMap,
-              bytes,
-              wireBytes,
-              text: options.onData ? undefined : Buffer.concat(chunks).toString('utf8'),
-              tls
-            });
+            if (decompressor) {
+              // le contenu décodé arrive après `end()` : on attend que `zlib` ait tout rendu
+              decompressor.on('end', finalize);
+              decompressor.end();
+              return;
+            }
+            finalize();
           });
           response.on('error', () => {
             fail(new AppError('network/refused', 'connexion interrompue par le serveur'));
@@ -452,7 +475,9 @@ export class HttpClient {
             fail(new AppError('network/tls', 'echec de la validation TLS (certificat ou chaine non valide)'));
             return;
           }
-          fail(new AppError('network/refused', 'connexion impossible vers cet hote'));
+          // Le code d'erreur d'origine est conservé dans le message : sans lui, un défaut de
+          // transport se confond avec un refus du portail (aucune URL ni secret n'y figure).
+          fail(new AppError('network/refused', 'connexion impossible vers cet hote' + (code ? ' (' + code + ')' : '')));
         });
 
         if (options.body !== undefined && request.write) {
@@ -566,7 +591,14 @@ export function absolutize(location: string, base: ParsedUrl): string {
   return base.scheme + '://' + authority + basePath + location;
 }
 
+/**
+ * En-tête envoyé par défaut. Il identifie l'application (elle-même, pas un navigateur) : les
+ * portails qui filtrent sur `User-Agent` reçoivent ainsi une valeur stable et lisible.
+ */
+export const DEFAULT_USER_AGENT = 'IPTVPlayer/0.1.1 (webOS TV; +https://github.com/ouagkamel/iptv_V2)';
+
 export function codeForStatus(status: number): ErrorCode {
+  if (status === 461) return 'provider/badResponse';
   if (status === 401 || status === 403) return 'auth/invalidCredentials';
   if (status === 404) return 'provider/badResponse';
   if (status === 429) return 'auth/tooManyConnections';

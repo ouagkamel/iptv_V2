@@ -49,6 +49,7 @@ import { XtreamProvider, type XtreamSession } from '../providers/xtream';
 import type { XtreamContentType } from '../providers/xtreamSchema';
 import { runXtreamImport, createXtreamImportJob } from '../import/xtreamImport';
 import { shouldOfferCleanup } from '../../core/machines';
+import { hostOf } from '../../core/urltools';
 import {
   MAX_DETAIL_BYTES,
   assertObjectCap,
@@ -113,6 +114,12 @@ export class IptvService {
   readonly playbacks: PlaybackRepository;
 
   private readonly sessionSecrets: Record<string, SessionSecrets> = {};
+  /**
+   * Hôtes en HTTP clair acceptés pendant cette session de service (§8.2 : « avertissement à
+   * confirmer une fois par profil et par hôte »). Vidé à la mort du service : le consentement
+   * durable, lui, vit dans DB8.
+   */
+  private readonly sessionAcceptedHosts: string[] = [];
   private readonly runningJobs: Record<string, RunningJob> = {};
   private readonly subscribers: Record<string, Subscriber> = {};
   private readonly readers: Record<string, { reader: CatalogIndexReader; indexVersion: number }> = {};
@@ -244,7 +251,19 @@ export class IptvService {
       });
     }
     if (!input.baseUrl) throw new AppError('profile/invalid', 'adresse de portail manquante');
-    const provider = this.providerFor({ id: 'session', baseUrl: input.baseUrl, lanAllowed: input.lanAllowed }, {
+    const testConsent = (payload.consent || {}) as Record<string, unknown>;
+    if (testConsent.insecureHttp === true) {
+      // l'utilisateur a confirmé l'avertissement « HTTP clair » pour cet hôte
+      await this.acceptInsecureHost(hostOf(input.baseUrl), asString(payload.profileId));
+    }
+    const provider = this.providerFor(
+      {
+        id: 'session',
+        baseUrl: input.baseUrl,
+        lanAllowed: input.lanAllowed,
+        userAgent: asString(payload.userAgent)
+      },
+      {
       username: input.username,
       password: input.password,
       acceptedHosts: await this.acceptedHostsFor('session')
@@ -289,6 +308,9 @@ export class IptvService {
     if (!username || !password) {
       throw new AppError('auth/invalidCredentials', 'identifiants requis pour importer ce portail', 'ressaisir les identifiants du profil');
     }
+    if (consent.insecureHttp === true) {
+      await this.acceptInsecureHost(hostOf(baseUrl), profileId);
+    }
     if (persistSecrets) {
       // consentement explicite « Mémoriser ce profil sur ce téléviseur » (§8.2)
       await this.consents.record({ profileId, kind: 'persistProfile', acceptedAt: this.now() });
@@ -328,7 +350,13 @@ export class IptvService {
     }
 
     const provider = this.providerFor(
-      { id: profileId, baseUrl, lanAllowed: profile.lanAllowed, preferredLiveFormat: profile.preferredLiveFormat },
+      {
+        id: profileId,
+        baseUrl,
+        lanAllowed: profile.lanAllowed,
+        preferredLiveFormat: profile.preferredLiveFormat,
+        userAgent: profile.userAgent
+      },
       { username, password, acceptedHosts: await this.acceptedHostsFor(profileId) }
     );
 
@@ -532,7 +560,13 @@ export class IptvService {
       password: session && session.password ? session.password : profile.password
     };
     const provider = this.providerFor(
-      { id: profileId, baseUrl: profile.baseUrl, lanAllowed: profile.lanAllowed, preferredLiveFormat: profile.preferredLiveFormat },
+      {
+        id: profileId,
+        baseUrl: profile.baseUrl,
+        lanAllowed: profile.lanAllowed,
+        preferredLiveFormat: profile.preferredLiveFormat,
+        userAgent: profile.userAgent
+      },
       { username: credentials.username, password: credentials.password, acceptedHosts: await this.acceptedHostsFor(profileId) }
     );
 
@@ -691,7 +725,16 @@ export class IptvService {
     return rows.map((row) => row.job as ImportJob).filter(Boolean);
   }
 
-  private providerFor(profile: { id: string; baseUrl?: string; lanAllowed?: boolean; preferredLiveFormat?: 'auto' | 'hls' | 'ts' }, session: XtreamSession): XtreamProvider {
+  private providerFor(
+    profile: {
+      id: string;
+      baseUrl?: string;
+      lanAllowed?: boolean;
+      preferredLiveFormat?: 'auto' | 'hls' | 'ts';
+      userAgent?: string;
+    },
+    session: XtreamSession
+  ): XtreamProvider {
     return new XtreamProvider({
       http: this.http,
       profile: {
@@ -700,7 +743,8 @@ export class IptvService {
         username: session.username,
         password: session.password,
         lanAllowed: profile.lanAllowed,
-        preferredLiveFormat: profile.preferredLiveFormat
+        preferredLiveFormat: profile.preferredLiveFormat,
+        userAgent: profile.userAgent
       },
       session: session,
       onWarning: (warning) => this.onLog('fournisseur : ' + warning)
@@ -771,7 +815,25 @@ export class IptvService {
       .filter((consent) => consent.kind === 'insecureHttp' && consent.insecureHost)
       .map((consent) => consent.insecureHost as string);
     const session = this.sessionSecrets[profileId];
-    return hosts.concat(session ? session.acceptedHosts : []);
+    const sessionHosts = session ? session.acceptedHosts : [];
+    // les hôtes acceptés pendant la session valent pour toute source de cette session de service
+    return hosts.concat(sessionHosts, this.sessionAcceptedHosts);
+  }
+
+  /**
+   * Enregistre le consentement « HTTP clair » pour un hôte (§8.2), une seule fois par profil et par
+   * hôte, et retient l'hôte pour la session en cours — y compris sans profil (`testProfile` peut
+   * être appelé avant tout enregistrement de profil).
+   */
+  private async acceptInsecureHost(host: string | null, profileId?: string): Promise<void> {
+    if (!host) return;
+    if (this.sessionAcceptedHosts.indexOf(host) === -1) this.sessionAcceptedHosts.push(host);
+    if (!profileId) return;
+    const consents = await this.consents.list(profileId);
+    const already = consents.some((consent) => consent.kind === 'insecureHttp' && consent.insecureHost === host);
+    if (!already) {
+      await this.consents.record({ profileId, kind: 'insecureHttp', insecureHost: host, acceptedAt: this.now() });
+    }
   }
 
   /* -------------------------------------------------------- démarrage service */

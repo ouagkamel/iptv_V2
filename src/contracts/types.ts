@@ -184,6 +184,11 @@ export interface ProfileInput {
   persistSecrets?: boolean;
   /** vrai si des identifiants sont mémorisés pour ce profil — jamais un identifiant lui-même (§9.2) */
   hasCredentials?: boolean;
+  /**
+   * `User-Agent` à utiliser pour ce portail. Vide = en-tête par défaut du service. Réglable parce
+   * que certains portails et proxys CDN refusent une requête sans en-tête (constaté en 0C).
+   */
+  userAgent?: string;
 }
 
 export interface Profile extends ProfileInput {

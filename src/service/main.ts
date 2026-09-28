@@ -110,27 +110,50 @@ function describe(error: unknown): string {
   return 'erreur inconnue';
 }
 
-/** Amorce réelle : hors TV (tests, outillage), ce bloc ne s'exécute pas. */
-if (require.main === module) {
+export interface BootstrapOptions {
+  storageRoot?: string;
+  /** injection de test : remplace `require('webos-service')` (jamais utilisé sur la TV) */
+  serviceFactory?: () => WebosServiceLike;
+  /** journal des lignes de démarrage (tests) */
+  onLog?: (line: string) => void;
+}
+
+/**
+ * Démarre le service sur une instance LS2.
+ *
+ * **Ce n'est pas conditionné par `require.main === module`** : la plateforme peut charger le fichier
+ * `main` par `require()`, au cas où `require.main` désigne son propre chargeur et non ce module —
+ * le service ne s'enregistrerait alors jamais et le hub répondrait « Service does not exist »
+ * (constaté en phase 0A). L'appel se fait depuis `index.js`, point d'entrée du paquet.
+ */
+export function bootstrap(options?: BootstrapOptions): IptvService | null {
+  const journal = options && options.onLog ? options.onLog : log;
   try {
-    const Service = require('webos-service') as { new (name: string): WebosServiceLike };
-    const raw = new Service(SERVICE_NAME);
+    const factory =
+      options && options.serviceFactory
+        ? options.serviceFactory
+        : () => {
+            const Service = require('webos-service') as { new (name: string): WebosServiceLike };
+            return new Service(SERVICE_NAME);
+          };
+    const raw = factory();
 
     // Une exception non rattrapée ne doit pas tuer le service : la réponse en cours a déjà reçu son
     // erreur typée par l'enveloppe LS2, et l'état utile vit dans DB8 et sur disque.
     process.on('uncaughtException', (error: Error) => {
-      log('exception non rattrapee : ' + error.message);
+      journal('exception non rattrapee : ' + error.message);
     });
     process.on('unhandledRejection', (reason: unknown) => {
-      log('promesse rejetee non rattrapee : ' + describe(reason));
+      journal('promesse rejetee non rattrapee : ' + describe(reason));
     });
     process.on('SIGTERM', () => {
       // Arrêt demandé par la plateforme : l'état est déjà persistant, rien à sauver en urgence.
-      log('arret demande par la plateforme');
+      journal('arret demande par la plateforme');
     });
 
-    start(raw);
+    return start(raw, options);
   } catch (error) {
-    log('demarrage impossible : ' + describe(error));
+    journal('demarrage impossible : ' + describe(error));
+    return null;
   }
 }

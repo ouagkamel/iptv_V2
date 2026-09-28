@@ -1,8 +1,8 @@
 {
   "name": "com.ouagkamel.app.iptvplayer.service",
-  "version": "0.1.0",
-  "description": "Service JS (Node 8.12) : réseau fournisseur, import et index catalogue local",
-  "main": "lib/service/main.js",
+  "version": "0.1.1",
+  "description": "Service JS (Node 8.12) : reseau fournisseur, import et index catalogue local",
+  "main": "index.js",
   "private": true,
   "dependencies": {}
 }

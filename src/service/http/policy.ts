@@ -135,12 +135,31 @@ function wrapHost(address: string): string {
   return address.indexOf(':') !== -1 ? '[' + address + ']' : address;
 }
 
-/** Fabrique un `lookup` épinglé, utilisé par le client HTTP (signature Node 8 : 3 arguments). */
-export function pinnedLookup(address: DnsAddress, fallback: LookupFn): (hostname: string, options: unknown, callback: (err: Error | null, addr: string, family: number) => void) => void {
-  return function lookupPinned(hostname: string, options: unknown, callback: (err: Error | null, addr: string, family: number) => void): void {
+export type PinnedLookup = (
+  hostname: string,
+  options: unknown,
+  callback: (err: Error | null, addr: string | Array<{ address: string; family: number }>, family?: number) => void
+) => void;
+
+/**
+ * Fabrique un `lookup` épinglé : l'adresse déjà validée est renvoyée sans nouvelle résolution, ce qui
+ * empêche une seconde résolution de contourner la validation (§2.5).
+ *
+ * Deux formes de réponse existent selon le Node qui appelle :
+ *  - Node 8.12 (celui de webOS 6) attend `callback(null, adresse, famille)` ;
+ *  - Node ≥ 18 avec `autoSelectFamily` interroge avec `{ all: true }` et attend un **tableau**
+ *    d'adresses ; répondre la forme chaîne y produit `ERR_INVALID_IP_ADDRESS: Invalid IP address:
+ *    undefined` (défaut constaté en 0C sur un portail réel).
+ */
+export function pinnedLookup(address: DnsAddress, fallback: LookupFn): PinnedLookup {
+  return function lookupPinned(hostname, options, callback): void {
     void fallback;
     void hostname;
-    void options;
+    const wantsAll = Boolean(options && (options as { all?: boolean }).all === true);
+    if (wantsAll) {
+      callback(null, [{ address: address.address, family: address.family }]);
+      return;
+    }
     callback(null, address.address, address.family);
   };
 }

@@ -53,6 +53,8 @@ export interface XtreamProfileInput {
   persistSecrets?: boolean;
   preferredLiveFormat?: 'auto' | 'hls' | 'ts';
   lanAllowed?: boolean;
+  /** en-tête envoyé au portail : vide = valeur par défaut du service */
+  userAgent?: string;
 }
 
 export interface XtreamSession {
@@ -156,14 +158,18 @@ export class XtreamProvider {
   }
 
   private requestOptions(shouldAbort?: () => boolean) {
+    const headers: Record<string, string> = {};
+    // Le `User-Agent` est réglable par profil : des portails (et des proxys CDN) refusent une
+    // requête qui n'en porte pas. Aucune URL de flux n'est jamais transmise en en-tête ni en
+    // Referer.
+    if (this.profile.userAgent) headers['User-Agent'] = this.profile.userAgent;
     return {
       lanAllowed: Boolean(this.profile.lanAllowed),
       acceptedHosts: this.session.acceptedHosts || [],
       maxBytes: this.maxBytesPerResponse,
       maxWireBytes: this.maxWireBytes,
       shouldAbort: shouldAbort,
-      // les URL de flux ne sont jamais transmises en en-tête ni en Referer
-      headers: {} as Record<string, string>
+      headers: headers
     };
   }
 
