@@ -9,7 +9,8 @@ Ce dépôt implémente la spécification `docs/SPEC-v1.3.md` **par incréments**
 | Incrément | Contenu | État |
 |---|---|---|
 | Socle | contrats `§15.1`, crypto d'index `§15.3`, index/recherche `§15.2`, machines d'état `§15.5`, outillage CI | **livré (étape 1)** |
-| V1-A | Xtream (profil, test) + Live TV (catégories, chaînes) + lecteur + `resolveStream()` + diagnostic local | en cours |
+| Service | client HTTP `§2.5`, parseur JSON incrémental, DB8 `§2.4`, adaptateur Xtream `§5.1`, import reprenable `§15.5`, protocole LS2 `§15.4`, diagnostic local | **livré (étape 2)** |
+| V1-A | Xtream (profil, test) + Live TV (catégories, chaînes) + lecteur + `resolveStream()` + diagnostic local | interface Enact en cours (étape 3) ; **service complet** |
 | V1-B | EPG, favoris, reprise, VOD (grille, fiche, recherche indexée, saut alphabétique) | à venir |
 | V1-C | Séries (saisons, épisodes) + navigation globale persistante | à venir |
 | V1-D | M3U (second moteur, identité `logicalKey`/`variantKey`), gros catalogues, index chiffré, reprise d'import | à venir |
@@ -53,6 +54,16 @@ Le détail des vérifications à faire **sur la TV** (phase 0A/0B, §12) est dan
 > compilation sur Node 20, puis l'artefact du service testé sur **Node 8.12.0** — la version
 > réellement embarquée par webOS 6. Un test qui échoue seulement en 8.12 est un bug de cible, pas
 > un test à désactiver.
+
+## Le service en trois phrases
+
+Le service est la seule partie qui touche au réseau, au disque et à DB8. `importPlaylist` construit
+un index chiffré par type de contenu et le publie par bascule atomique ; l'interface ne reçoit
+jamais d'URL — elle demande une page (`getPage`), une recherche (`search`) ou une tranche
+alphabétique (`getBuckets`), puis une résolution de flux (`resolveStream`) juste avant la lecture.
+Tous les appels partagent la même enveloppe `{ returnValue, indexVersion?, data?, error? }`, bornée
+en objets **et** en octets, et le diagnostic local ne contient jamais un identifiant ni une adresse
+de portail complète.
 
 ## Sécurité et vie privée
 
