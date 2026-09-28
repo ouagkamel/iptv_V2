@@ -14,8 +14,10 @@ var assert = require('./assert');
 var harness = require('./harness');
 var banc = require('./entrypoint-harness');
 var fs = require('fs');
+var os = require('os');
 var path = require('path');
 var vm = require('vm');
+var outilDist = require('../tools/make-dist');
 
 var SERVICE_DIR = banc.SERVICE_DIR;
 var APP_DIR = path.join(__dirname, '..', 'src', 'app');
@@ -132,6 +134,20 @@ harness.describe('Page du paquet : ressources présentes et pont LS2 embarqué',
     });
   });
 
+  /**
+   * Un fichier vidé par accident (ex. édition qui tronque) passerait tous les autres contrôles : la
+   * page s'ouvrirait sur une coquille vide. Les scripts de la page doivent donc être **lisibles** et
+   * **analysables**, pas seulement présents.
+   */
+  harness.it('les scripts de la page sont non vides et analysables', function () {
+    ressourcesLocales().forEach(function (cible) {
+      if (!/\.js$/.test(cible)) return;
+      var source = fs.readFileSync(path.join(APP_DIR, cible), 'utf8');
+      assert.ok(source.length > 500, 'script non vide : ' + cible + ' (' + source.length + ' octets)');
+      new vm.Script(source, { filename: cible });
+    });
+  });
+
   harness.it('webOSTV.js n est plus referencee : le pont LS2 est embarque', function () {
     assert.equal(html.indexOf('webOSTV.js'), -1, 'aucun renvoi a la bibliotheque du SDK LG');
     assert.ok(ressourcesLocales().indexOf('webos-bridge.js') !== -1, 'webos-bridge.js charge par la page');
@@ -230,5 +246,64 @@ harness.describe('Page du paquet : ressources présentes et pont LS2 embarqué',
     assert.equal(apres.service.request, plateforme.service.request, 'request de la plateforme non remplacee');
     assert.equal(apres.__pont.chemin, 'webos-service', 'chemin plateforme signale');
     assert.equal(apres.__pont.fourniParLaPlateforme, true, 'origine signalee');
+  });
+});
+
+/**
+ * Régression : `dist/app/` était constitué d'une **liste de noms** écrite à la main
+ * (`appinfo.json`, `index.html`, `diagnostic.js`) — `webos-bridge.js` a donc été livré dans
+ * l'`.ipk` mais **absent de l'archive `dist/`**. La copie doit être exhaustive, par construction.
+ */
+harness.describe('Livraison dist : copie exhaustive de l application', function () {
+  function creerDossier(chemin) {
+    var parent = path.dirname(chemin);
+    if (parent !== chemin && !fs.existsSync(parent)) creerDossier(parent);
+    if (!fs.existsSync(chemin)) fs.mkdirSync(chemin);
+  }
+
+  harness.it('un fichier inconnu du script est copie dans dist/app', function () {
+    var racine = fs.mkdtempSync(path.join(os.tmpdir(), 'iptv-dist-'));
+    var inspection = path.join(racine, 'package');
+    var dossier = path.join(racine, '9.9.9');
+    var ecritures = [
+      ['appinfo.json', '{"id":"com.exemple.app"}'],
+      ['index.html', '<script src="nouveau-fichier.js"></script>'],
+      ['diagnostic.js', '// page'],
+      ['nouveau-fichier.js', '// fichier ajoute apres coup'],
+      ['assets/icone.png', 'png'],
+      ['service/com.exemple.app.service/services.json', '{"services":[]}'],
+      ['service/com.exemple.app.service/index.js', "require('webos-service');"]
+    ];
+    ecritures.forEach(function (paire) {
+      var cible = path.join(inspection, paire[0]);
+      creerDossier(path.dirname(cible));
+      fs.writeFileSync(cible, paire[1]);
+      // la cible ne doit pas exister avant la copie
+      var copie = path.join(paire[0].indexOf('service/') === 0 ? dossier : path.join(dossier, 'app'), paire[0].replace(/^service\//, ''));
+      assert.equal(fs.existsSync(copie), false, 'non present avant copie : ' + paire[0]);
+    });
+
+    outilDist.copierArborescence(inspection, dossier);
+
+    ecritures.forEach(function (paire) {
+      var relatif = paire[0].indexOf('service/') === 0 ? paire[0] : path.join('app', paire[0]);
+      var copie = path.join(dossier, relatif);
+      assert.equal(fs.existsSync(copie), true, 'copie presente : ' + relatif);
+      assert.equal(fs.readFileSync(copie, 'utf8'), paire[1], 'contenu identique : ' + relatif);
+    });
+    assert.equal(
+      fs.readdirSync(path.join(dossier, 'app')).indexOf('service'),
+      -1,
+      'le service ne se retrouve pas dans app/'
+    );
+
+    banc.removeTree(racine);
+  });
+
+  harness.it('le script exporte la copie sans se construire au chargement', function () {
+    // le chargement de `tools/make-dist.js` par ce test ne doit ni compiler, ni appeler ares-package :
+    // seule la fonction de copie est exportee, le reste vit derriere `require.main === module`
+    assert.equal(typeof outilDist.copierArborescence, 'function', 'fonction de copie exportee');
+    assert.deepEqual(Object.keys(outilDist).sort(), ['copierArborescence'], 'aucun autre export');
   });
 });

@@ -23,6 +23,13 @@ var os = require('os');
 var path = require('path');
 var urlLib = require('url');
 
+/** Création d'arborescence portable : `mkdirSync(dir, {recursive:true})` date de Node 10.12. */
+function creerDossiers(dir) {
+  var parent = path.dirname(dir);
+  if (parent !== dir && !fs.existsSync(parent)) creerDossiers(parent);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+}
+
 var libRoot = path.join(__dirname, '..', 'service', 'com.ouagkamel.app.iptvplayer.service', 'lib');
 var clientLib = require(path.join(libRoot, 'service', 'http', 'httpClient'));
 var db8Lib = require(path.join(libRoot, 'service', 'db8', 'client'));
@@ -118,7 +125,7 @@ function lireFlux(cible, octetsMax, delaiMs) {
 }
 
 var stockage = path.join(os.tmpdir(), 'iptv-verify-' + Date.now());
-fs.mkdirSync(stockage, { recursive: true });
+creerDossiers(stockage);
 
 var http = new clientLib.HttpClient({});
 var fauxDb = new db8Lib.FakeDb8Bus();

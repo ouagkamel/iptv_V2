@@ -13,10 +13,26 @@
  * déclaré dans `services.json` et utilisé par l'application.
  */
 
-var main = require('./lib/service/main');
+// Premiere ligne executee : elle doit apparaitre dans `ares-log -d tv -u <service>`. Si elle
+// n'apparait pas, le processus n'a jamais demarre (enregistrement du service cote plateforme) ;
+// si elle apparait et que rien ne suit, le chargement ci-dessous a echoue et la cause est affichee.
+console.log('[iptv] demarrage du service com.ouagkamel.app.iptvplayer.service (node ' + process.version + ')');
+
+var main;
+try {
+  main = require('./lib/service/main');
+} catch (erreur) {
+  console.error('[iptv] chargement du service impossible : ' + (erreur && erreur.message));
+  throw erreur;
+}
 
 if (typeof main.bootstrap !== 'function') {
   console.error('[iptv] lib/service/main.js incomplet : executer `npm run build:service`');
 } else {
-  main.bootstrap();
+  var instance = main.bootstrap();
+  console.log(
+    instance
+      ? '[iptv] service enregistre aupres du hub LS2 : 11 commandes'
+      : '[iptv] service NON enregistre : voir les lignes precedentes'
+  );
 }

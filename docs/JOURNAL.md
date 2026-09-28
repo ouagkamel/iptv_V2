@@ -34,8 +34,33 @@ ares-install --device tv com.ouagkamel.app.iptvplayer_0.1.2_all.ipk  # réinstal
 ares-inspect --device tv -s com.ouagkamel.app.iptvplayer.service -o   # démarre le service et ouvre sa console
 ```
 
-**Livraison** : version **0.1.2**, `npm test` → **154 tests, 0 échec** (Node 20 et Node 8.12),
-`npm run dist` → `dist/0.1.2/` + `dist/0.1.2.zip`, publication `v0.1.2-phase0a`.
+**Deux défauts de plus, trouvés en relisant la livraison** (ils auraient fait perdre un aller-retour
+supplémentaire sur la TV) :
+
+| Réf. | Défaut | Correctif |
+|---|---|---|
+| **D-19** | `dist/<version>/app/` était assemblé à partir d'une **liste de noms écrite à la main** (`appinfo.json`, `index.html`, `diagnostic.js`) : `webos-bridge.js` manquait donc dans l'archive `dist/`, alors qu'il était bien dans l'`.ipk` | la copie prend désormais **tout** le contenu empaqueté (aucune liste), et le test recrée une arborescence avec un fichier inconnu du script pour vérifier qu'il est copié ; les outils ne construisent plus rien quand on les `require()` depuis un test |
+| **D-20** | Un fichier vidé par accident (`diagnostic.js`, 0 octet) passait tous les contrôles : la page se serait ouverte vide | test « les scripts de la page sont non vides et analysables » (`> 500 octets` **et** analyse `vm.Script`) ; le point d'entrée du service journalise désormais au chargement (`[iptv] demarrage du service … (node v8.12.x)` puis `[iptv] service enregistre … 11 commandes`), ce qui rend le diagnostic possible à distance avec `ares-log --device tv --follow` |
+
+Les outils (`tools/*.js`) sont maintenant contrôlés eux aussi par `npm run lint:node812` : c'est ce
+qui a révélé que `fs.mkdirSync(dir, {recursive:true})` (Node 10.12) y traînait — et comme les tests
+les exécutent, le défaut aurait échoué sur la tâche Node 8.12.
+
+**Livraison** : version **0.1.3** (0.1.2 avait une archive `dist/` incomplète),
+`npm test` → **157 tests, 0 échec** (Node 20 et Node 8.12), `npm run dist` → `dist/0.1.3/` +
+`dist/0.1.3.zip`, publication **`v0.1.3-phase0a`** — pré-version, identifiant `398407077`,
+trois pièces jointes (texte de publication conservé dans `docs/RELEASE-0.1.3.md`) :
+
+| Fichier | Taille | sha256 |
+|---|---|---|
+| `com.ouagkamel.app.iptvplayer_0.1.3_all.ipk` | 229 444 o | `ab1ae5da1e96efdc7f7891025faf43f8c045af1e2b496ea336caf3ff5f89b3af` |
+| `0.1.3.zip` | 488 111 o | `df09faf8c37452ad37c16990230e1fb62a6dd839ff90928acced460ae7cdb072` |
+| `SHA256SUMS.txt` | 5 720 o | `ad3a61793cad7c099941767551a50529bf23138b1934bcaabffa301cf5d07c1f` |
+
+Re-téléchargées depuis l'URL publique et comparées octet à octet ; l'`.ipk` publié a été ouvert et
+inspecté (page complète : `index.html`, `webos-bridge.js` 5 601 o, `diagnostic.js` 15 550 o ;
+service : `index.js`, `lib/`, `services.json` avec ses onze commandes, `package.json` → `main: index.js`).
+Les publications `v0.1.0`, `v0.1.1` et `v0.1.2` portent une mention « remplacée par v0.1.3 ».
 
 ## 2026-09-28 — Correctifs après premier essai TV + validation sur portail réel (0.1.1)
 

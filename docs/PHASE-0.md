@@ -21,7 +21,7 @@ npm run pack:webos                        # compile le service puis produit rele
 # sur la TV : mode développeur activé (application « Developer Mode »), même compte LG que le CLI
 ares-setup-device --add tv --info "host=<IP de la TV>" --passphrase   # la TV affiche la phrase
 ares-device  --device tv --system-info                                # doit répondre : mode développeur visible
-ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.2_all.ipk
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.3_all.ipk
 ares-launch  --device tv com.ouagkamel.app.iptvplayer
 ```
 
@@ -38,10 +38,22 @@ paquet — la bannière de la page affiche alors la même séquence que ci-desso
 ```bash
 ares-install --device tv --listfull                                  # version réellement installee
 ares-install --device tv -r com.ouagkamel.app.iptvplayer             # desinstallation complete
-ares-install --device tv com.ouagkamel.app.iptvplayer_0.1.2_all.ipk  # reinstallation
+ares-install --device tv com.ouagkamel.app.iptvplayer_0.1.3_all.ipk  # reinstallation
 # redemarrer la TV : le hub relit la liste de ses services au demarrage
 ares-inspect --device tv -s com.ouagkamel.app.iptvplayer.service -o   # lance le service et ouvre sa console
 ```
+
+Le journal du service se lit pendant l'installation :
+
+```bash
+ares-log --device tv --follow          # suivre les journaux de la TV
+ares-log --device tv --lines 400       # relire les derniers
+```
+
+Le service écrit au minimum `[iptv] demarrage du service ... (node v8.12.x)` puis
+`[iptv] service enregistre aupres du hub LS2 : 11 commandes`. Si la **première** ligne n'apparaît
+pas, le service n'a jamais été lancé (enregistrement côté plateforme) ; si elle apparaît sans la
+seconde, la cause est affichée juste après (chargement `lib/service/main.js` impossible).
 
 Bouton **Témoin du bus LS2** de la page : il interroge un service *du système*
 (`com.webos.service.tv.systemproperty`). S'il répond, le pont de l'application fonctionne et le

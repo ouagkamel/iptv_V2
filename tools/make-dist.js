@@ -18,6 +18,10 @@
  *     <version>.zip                            (archive de ce dossier)
  *
  * Prérequis : `ares-package` (outillage LG) — voir `tools/make-package.js`.
+ *
+ * L'arborescence `app/` de la livraison est copiée **en entier** depuis le contenu empaqueté : une
+ * liste de noms écrite à la main oublie silencieusement tout fichier ajouté ensuite (cas rencontré
+ * avec `webos-bridge.js`, absent de `dist/` alors qu'il était dans l'`.ipk`).
  */
 
 var childProcess = require('child_process');
@@ -44,8 +48,15 @@ function removeTree(target) {
   fs.rmdirSync(target);
 }
 
+/** Création d'arborescence portable : `mkdirSync(dir, {recursive:true})` date de Node 10.12. */
+function creerDossiers(dir) {
+  var parent = path.dirname(dir);
+  if (parent !== dir && !fs.existsSync(parent)) creerDossiers(parent);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+}
+
 function copyTree(from, to) {
-  fs.mkdirSync(to, { recursive: true });
+  creerDossiers(to);
   fs.readdirSync(from).forEach(function (name) {
     var source = path.join(from, name);
     var cible = path.join(to, name);
@@ -79,6 +90,24 @@ function lireRecu(file) {
   return fs.readFileSync(file, 'utf8');
 }
 
+/**
+ * Copie le contenu empaqueté dans le dossier livrable : **tous** les fichiers de l'application (le
+ * dossier `service/` mis à part, qui va dans `service/`) puis le service compilé. Aucune liste de
+ * noms : tout fichier ajouté à l'application se retrouve dans `dist/` sans intervention.
+ */
+function copierArborescence(inspection, dossier) {
+  var dossierApp = path.join(dossier, 'app');
+  creerDossiers(dossierApp);
+  fs.readdirSync(inspection).forEach(function (nom) {
+    var source = path.join(inspection, nom);
+    if (nom === 'service') return;
+    if (fs.statSync(source).isDirectory()) copyTree(source, path.join(dossierApp, nom));
+    else fs.copyFileSync(source, path.join(dossierApp, nom));
+  });
+  var service = path.join(inspection, 'service');
+  if (fs.existsSync(service)) copyTree(service, path.join(dossier, 'service'));
+}
+
 function main() {
   var appinfo = JSON.parse(lireRecu(path.join(ROOT, 'appinfo.json')));
   var version = appinfo.version;
@@ -93,23 +122,11 @@ function main() {
   // 2) arborescence livrable
   var dossier = path.join(DIST, version);
   if (fs.existsSync(dossier)) removeTree(dossier);
-  fs.mkdirSync(dossier, { recursive: true });
+  creerDossiers(dossier);
   fs.copyFileSync(ipk, path.join(dossier, path.basename(ipk)));
 
   var inspection = path.join(RELEASE, 'package');
-  if (fs.existsSync(inspection)) {
-    copyTree(path.join(inspection, 'assets'), path.join(dossier, 'app', 'assets'));
-    ['appinfo.json', 'index.html', 'diagnostic.js'].forEach(function (nom) {
-      var source = path.join(inspection, nom);
-      if (fs.existsSync(source)) {
-        fs.mkdirSync(path.join(dossier, 'app'), { recursive: true });
-        fs.copyFileSync(source, path.join(dossier, 'app', nom));
-      }
-    });
-    if (fs.existsSync(path.join(inspection, 'service'))) {
-      copyTree(path.join(inspection, 'service'), path.join(dossier, 'service'));
-    }
-  }
+  if (fs.existsSync(inspection)) copierArborescence(inspection, dossier);
 
   var lignes = [
     '# Paquet de diagnostic — phase 0A',
@@ -180,4 +197,7 @@ function main() {
   console.log('[dist] archive  : ' + path.relative(ROOT, archive) + ' (' + fs.statSync(archive).size + ' octets)');
 }
 
-main();
+/* Exécution directe seulement : `require()` depuis les tests ne doit rien construire. */
+if (require.main === module) main();
+
+module.exports = { copierArborescence: copierArborescence };

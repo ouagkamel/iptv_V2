@@ -113,7 +113,7 @@ function environnement() {
     bridgeBasNiveau: typeof window.PalmServiceBridge === 'function',
     palmSystem: !!(window.PalmSystem || window.palmSystem),
     service: SERVICE,
-    versionPage: '0.1.2'
+    versionPage: '0.1.3'
   };
 }
 
@@ -169,8 +169,9 @@ function controleInitial() {
           'l’a pas enregistré. Trois gestes, dans cet ordre :',
           [
             'Vérifier la version réellement installée : <code>ares-install --device tv --listfull</code> ' +
-            '(il faut <code>0.1.2</code> ou plus : les versions précédentes démarraient le service derrière ' +
-            '<code>require.main === module</code>).',
+            '(il faut <code>' + environnement().versionPage + '</code> ou plus : les versions 0.1.0 à 0.1.1 ' +
+            'démarraient le service derrière <code>require.main === module</code>, et celles d’avant 0.1.2 ' +
+            'chargeaient un <code>webOSTV.js</code> absent du paquet).',
             'Désinstaller puis réinstaller, puis <b>redémarrer la TV</b> : l’enregistrement des services ' +
             'est relu au démarrage — <code>ares-install -d tv -r com.ouagkamel.app.iptvplayer</code> puis ' +
             '<code>ares-install -d tv com.ouagkamel.app.iptvplayer_0.1.2_all.ipk</code>.',

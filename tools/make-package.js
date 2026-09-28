@@ -46,8 +46,15 @@ function removeTree(target) {
   fs.rmdirSync(target);
 }
 
+/** Création d'arborescence portable : `mkdirSync(dir, {recursive:true})` date de Node 10.12. */
+function creerDossiers(dir) {
+  var parent = path.dirname(dir);
+  if (parent !== dir && !fs.existsSync(parent)) creerDossiers(parent);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+}
+
 function copyTree(from, to) {
-  fs.mkdirSync(to, { recursive: true });
+  creerDossiers(to);
   fs.readdirSync(from).forEach(function (name) {
     if (name === 'node_modules' || name === '.git') return;
     var source = path.join(from, name);
@@ -84,12 +91,12 @@ function main() {
   // 3) arborescence d'empaquetage dans un dossier temporaire
   var staging = fs.mkdtempSync(path.join(os.tmpdir(), 'iptv-pack-'));
   var appDir = path.join(staging, 'app');
-  fs.mkdirSync(appDir, { recursive: true });
+  creerDossiers(appDir);
   fs.copyFileSync(path.join(ROOT, 'appinfo.json'), path.join(appDir, 'appinfo.json'));
   copyTree(APP_SRC, appDir);
   if (fs.existsSync(path.join(APP_SRC, 'assets'))) copyTree(path.join(APP_SRC, 'assets'), path.join(appDir, 'assets'));
 
-  fs.mkdirSync(RELEASE, { recursive: true });
+  creerDossiers(RELEASE);
   var commande = aresPackageCommand();
   var argumentsOutils = [appDir, SERVICE_DIR, '-o', RELEASE, '--no-minify'];
   console.log('[pack] ' + commande + ' ' + argumentsOutils.join(' '));

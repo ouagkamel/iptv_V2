@@ -21,7 +21,10 @@ var path = require('path');
 var ROOT = path.join(__dirname, '..');
 // `tests` est contrôlé aussi : la CI exécute la suite sur la cible Node 8.12, donc un appel
 // d'API trop récent dans le harnais casse la livraison sans rien dire sur Node 20.
-var SCAN_DIRS = ['src/service', 'src/core', 'src/contracts', 'tests'];
+var SCAN_DIRS = ['src/service', 'src/core', 'src/contracts', 'tests', 'tools'];
+
+// Le contrôleur lui-même **déclare** les motifs interdits : il se signalerait sur ses propres règles.
+var SCAN_EXCLUDE = ['tools/node812-compat.js'];
 var BUILD_DIR = path.join(ROOT, 'service', 'com.ouagkamel.app.iptvplayer.service', 'lib');
 
 var BANNED = [
@@ -158,6 +161,7 @@ var problems = [];
 
 SCAN_DIRS.forEach(function (dir) {
   listFiles(path.join(ROOT, dir), ['.ts', '.js']).forEach(function (file) {
+    if (SCAN_EXCLUDE.indexOf(path.relative(ROOT, file)) !== -1) return;
     var rawLines = fs.readFileSync(file, 'utf8').split('\n');
     var source = stripComments(rawLines.join('\n'));
     var relative = path.relative(ROOT, file);
