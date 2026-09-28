@@ -49,10 +49,10 @@ npm run pack:webos      # produit l'.ipk (nécessite @enact/cli + ares-cli)
 Installation en mode développeur : `ares-install --device tv dist/<paquet>.ipk`.
 Le détail des vérifications à faire **sur la TV** (phase 0A/0B, §12) est dans `docs/PHASE-0.md`.
 
-> **CI** : la configuration se trouve dans `ci/github-workflows-ci.yml` (et non dans
-> `.github/workflows/`). Le jeton utilisé pour le premier envoi n'avait pas la portée `workflow`,
-> que GitHub exige pour écrire un fichier de workflow. Pour l'activer, avec un jeton disposant de
-> cette portée : `mkdir -p .github/workflows && git mv ci/github-workflows-ci.yml .github/workflows/ci.yml`.
+> **CI** : `.github/workflows/ci.yml` s'exécute à chaque envoi. Deux cibles : l'outillage et la
+> compilation sur Node 20, puis l'artefact du service testé sur **Node 8.12.0** — la version
+> réellement embarquée par webOS 6. Un test qui échoue seulement en 8.12 est un bug de cible, pas
+> un test à désactiver.
 
 ## Sécurité et vie privée
 
