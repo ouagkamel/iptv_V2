@@ -52,8 +52,14 @@ Installation en mode développeur :
 ```bash
 npm i -g @webosose/ares-cli      # outillage LG (ares-package, ares-install, ares-launch)
 npm run pack:webos               # compile le service puis écrit release/com.ouagkamel.app.iptvplayer_<version>_all.ipk
+npm run dist                     # assemble dist/<version>/ (ipk + contenu dépaqueté + sommes) et dist/<version>.zip
 ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.0_all.ipk
 ```
+
+`npm run dist` produit la **livraison téléchargeable** : `dist/<version>/` contient l'`.ipk`, le
+contenu du paquet dépaqueté, `SHA256SUMS.txt` et un `LISEZ-MOI.txt` ; `dist/<version>.zip` est
+l'archive prête à joindre à une publication GitHub. Les publications du dépôt portent cette archive
+et l'`.ipk` séparément.
 
 Le paquet produit contient le **service complet** et une **page de diagnostic** télécommandable
 (`src/app/`) qui appelle les onze commandes LS2 : elle permet d'exécuter la phase 0A sur la TV sans

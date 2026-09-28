@@ -18,7 +18,8 @@
     "verify": "npm run lint:node812 && npm run check:deps && npm run typecheck && npm test",
     "pack:webos": "npm run build:service && node tools/make-package.js",
     "test:service-compile": "node tests/run.js",
-    "pack:app": "node tools/make-package.js"
+    "pack:app": "node tools/make-package.js",
+    "dist": "npm run build:service && node tools/make-dist.js"
   },
   "devDependencies": {
     "@types/node": "^8.10.66",

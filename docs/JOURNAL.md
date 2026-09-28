@@ -24,6 +24,10 @@ compilé, `assets/roots.pem`) ; les trois membres `debian-binary`, `control.tar.
 sont présents. Ce qui reste à faire **sur la TV** est listé dans `docs/PHASE-0.md` §0A (séquence en
 huit étapes avec la preuve attendue à chacune).
 
+**Livraison** : `npm run dist` assemble `dist/<version>/` (l'`.ipk`, le contenu dépaqueté
+`app/` + `service/`, `SHA256SUMS.txt`, `LISEZ-MOI.txt`) et l'archive `dist/<version>.zip`, publiées
+en **release GitHub** (`v0.1.0-phase0a`, pré-version) avec l'`.ipk` en pièce jointe séparée.
+
 **Ce que ce paquet ne prouve pas** : le lecteur `<video>` (0B), les écrans Enact, le D-pad complet
 sur quatre écrans (ils n'existent pas encore) — la page de diagnostic remplace seulement le socle
 applicatif et le service.
