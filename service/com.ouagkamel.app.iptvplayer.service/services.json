@@ -1,0 +1,23 @@
+{
+  "id": "com.ouagkamel.app.iptvplayer.service",
+  "description": "Réseau fournisseur, index catalogue local",
+  "services": [
+    {
+      "name": "com.ouagkamel.app.iptvplayer.service",
+      "description": "Réseau fournisseur, index catalogue local",
+      "commands": [
+        { "name": "testProfile", "description": "Teste une source sans rien persister", "public": false },
+        { "name": "importPlaylist", "description": "Démarre un import reprenable", "public": false },
+        { "name": "getImportJob", "description": "État persistant d'un import", "public": false },
+        { "name": "cancelOperation", "description": "Annule un import coopérativement", "public": false },
+        { "name": "getPage", "description": "Page de catalogue à curseur versionné", "public": false },
+        { "name": "search", "description": "Recherche indexée (préfixe, balayage borné)", "public": false },
+        { "name": "getBuckets", "description": "Tranches alphabétiques issues des données", "public": false },
+        { "name": "getDetails", "description": "Description complète d'un élément", "public": false },
+        { "name": "resolveStream", "description": "Résolution d'URL de flux (donnée de session)", "public": false },
+        { "name": "deleteProfile", "description": "Efface DB8, index, temporaires et clé maître", "public": false },
+        { "name": "diagnostics", "description": "Diagnostic local sans secret", "public": false }
+      ]
+    }
+  ]
+}

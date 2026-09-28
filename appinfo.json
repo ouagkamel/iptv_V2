@@ -1,0 +1,23 @@
+{
+  "id": "com.ouagkamel.app.iptvplayer",
+  "version": "0.1.0",
+  "vendor": "ouagkamel",
+  "type": "web",
+  "main": "index.html",
+  "title": "Lecteur IPTV",
+  "icon": "assets/icon_80x80.png",
+  "largeIcon": "assets/icon_130x130.png",
+  "resolution": "1920x1080",
+  "splashBackground": "assets/splash.png",
+  "splashColor": "#0b1220",
+  "transparent": false,
+  "disableBackHistoryAPI": false,
+  "handlesRelaunch": true,
+  "requiredMemory": 40,
+  "accessibility": {
+    "supportsAudioGuidance": true
+  },
+  "requiredPermissions": [
+    "time.query"
+  ]
+}

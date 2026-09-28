@@ -1,0 +1,53 @@
+# Configuration CI a installer dans `.github/workflows/ci.yml`.
+# Placee ici parce que le jeton fourni n'avait pas la portee `workflow` : GitHub refuse alors
+# toute ecriture dans `.github/workflows/`. Pour l'activer :
+#   mkdir -p .github/workflows && git mv ci/github-workflows-ci.yml .github/workflows/ci.yml
+# avec un jeton disposant de la portee `workflow`.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-et-tests:
+    name: Outillage, compilation et tests (Node 20)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run check:deps
+      - run: npm run build:service
+      - run: npm test
+      - run: npm run lint:node812
+      - name: Publier le service compile pour la cible Node 8.12
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-lib
+          path: service/com.ouagkamel.app.iptvplayer.service/lib
+
+  cible-node-8-12:
+    name: Tests sur la cible Node 8.12 (service empaquete)
+    needs: build-et-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: service-lib
+          path: service/com.ouagkamel.app.iptvplayer.service/lib
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '8.12.0'
+      - name: Version effectivement testee
+        run: node --version
+      - name: Controle d'API interdites (source + artefact)
+        run: node tools/node812-compat.js
+      - name: Tests
+        run: node tests/run.js

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.ipk
+*.ipk.arm
+# sorties de compilation du service (reconstruites par `npm run build:service`)
+service/com.ouagkamel.app.iptvplayer.service/lib/
+# artefacts de build de l'interface (Enact)
+.sandstone/
+webos-meta/build/
+*.log
+.DS_Store
+.ares/
+.venv/

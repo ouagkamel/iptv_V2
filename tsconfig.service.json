@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2017",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["ES2017"],
+    "types": ["node"],
+    "rootDir": "src",
+    "outDir": "service/com.ouagkamel.app.iptvplayer.service/lib"
+  },
+  "include": ["src/contracts/**/*.ts", "src/core/**/*.ts", "src/service/**/*.ts"]
+}
