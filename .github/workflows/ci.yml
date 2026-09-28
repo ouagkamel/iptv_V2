@@ -1,9 +1,3 @@
-# Configuration CI a installer dans `.github/workflows/ci.yml`.
-# Placee ici parce que le jeton fourni n'avait pas la portee `workflow` : GitHub refuse alors
-# toute ecriture dans `.github/workflows/`. Pour l'activer :
-#   mkdir -p .github/workflows && git mv ci/github-workflows-ci.yml .github/workflows/ci.yml
-# avec un jeton disposant de la portee `workflow`.
-
 name: CI
 
 on:
