@@ -40,8 +40,20 @@ erreur du lecteur ; V1-A doit le présenter comme « chaîne non disponible dans
 est servi par un hôte CDN distinct (adresse IP) après redirection : le pipeline média du téléviseur
 suit cette redirection, l'application ne doit ni épingler ni réécrire l'URL résolue.
 
-**Livraison** : version **0.1.1**, `npm run dist` → `dist/0.1.1/` + `dist/0.1.1.zip`, publication
-`v0.1.1-phase0a` (l'`.ipk` et l'archive), `npm test` → **149 tests, 0 échec**.
+**Livraison** : version **0.1.1**, `npm run dist` → `dist/0.1.1/` (`LISEZ-MOI.txt`, `SHA256SUMS.txt`,
+`app/`, `service/`, l'`.ipk`) + `dist/0.1.1.zip` (479 388 octets), publication
+`v0.1.1-phase0a` — pré-version, identifiant `398392407`, trois pièces jointes :
+
+| Fichier | Taille | sha256 |
+|---|---|---|
+| `com.ouagkamel.app.iptvplayer_0.1.1_all.ipk` | 225 468 o | `690a9184ac18a0721fd121d0011e3bc3778ea2643e2ee8c259b11b14fd8292a2` |
+| `0.1.1.zip` | 479 388 o | `fad5612ade8077085e0104100918ce1d42643994a4ad2dfb010935f3719a0d0d` |
+| `SHA256SUMS.txt` | 5 634 o | (sommes des 62 fichiers de `dist/0.1.1/`) |
+
+Les trois pièces ont été **re-téléchargées depuis l'URL publique** et comparées octet à octet à la
+construction locale (`ar t` du paquet téléchargé conforme). La release `v0.1.0-phase0a` est annotée
+« version obsolète — ne pas installer ». `npm test` → **149 tests, 0 échec** ; `npm run verify` vert
+(Node 8.12 inclus dans la CI).
 
 ## 2026-09-28 — Paquet de diagnostic (phase 0A)
 
