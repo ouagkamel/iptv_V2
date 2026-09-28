@@ -569,3 +569,63 @@ harness.describe('Service LS2 : profil et diagnostic (§9.2, §15.4)', function 
     assert.equal(envelopeLib.assertReplySafe(reply, { allowStreamUrl: true, maxBytes: 8 * 1024 }), undefined, 'resolveStream exempte');
   });
 });
+
+/**
+ * Régression phase 0A : une page **réelle** était refusée de bout en bout (« reponse refusee par le
+ * controle de surete ») parce qu'un logo du catalogue (`images.pluto.tv/channels/<24 hex>/…`)
+ * déclenchait la règle « segment base64 long ». Le contrôle doit viser les secrets, pas les URL.
+ */
+harness.describe('Controle de surete des reponses (§15.4) : secrets, pas donnees du catalogue', function () {
+  harness.it('un logo reel a identifiant long ne fait plus refuser la page', function () {
+    var page = {
+      returnValue: true,
+      indexVersion: 1,
+      data: {
+        items: [
+          { ref: { profileId: 'p1', contentType: 'live', providerId: '1000', displayName: 'Bein' }, title: 'Bein',
+            logoOrPosterUrl: 'https://images.pluto.tv/channels/64bab8ba5dc1660008969b5a/colorLogoPNG.png' },
+          { ref: { profileId: 'p1', contentType: 'live', providerId: '1001', displayName: 'TF1' }, title: 'TF1',
+            logoOrPosterUrl: 'https://img.example.com/p/8023c9a4b7e1f6d5038a9c7b4e2f1d0a9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4/poster.jpg' }
+        ]
+      }
+    };
+    assert.deepEqual(envelopeLib.findSecretPatterns(JSON.stringify(page)), [], 'aucun motif interdit');
+    assert.equal(envelopeLib.assertReplySafe(page), undefined, 'page acceptee');
+  });
+
+  harness.it('les secrets restent refuses hors resolveStream', function () {
+    var cle = Buffer.alloc(32, 7).toString('base64');
+    assert.deepEqual(
+      envelopeLib.findSecretPatterns(JSON.stringify({ v: cle })).sort(),
+      ['segment base64 long'],
+      'cle de chiffrement hors URL detectee'
+    );
+    assert.deepEqual(
+      envelopeLib.findSecretPatterns(JSON.stringify({ masterKey: cle })).sort(),
+      ['cle de chiffrement', 'segment base64 long'],
+      'champ de cle nomme explicitement'
+    );
+    assert.deepEqual(
+      envelopeLib.findSecretPatterns(JSON.stringify({ url: 'http://user:pass@cdn.example.com/a.ts' })).sort(),
+      ['userinfo'],
+      'identifiants dans l URL'
+    );
+    assert.deepEqual(
+      envelopeLib.findSecretPatterns(JSON.stringify({ url: 'http://host/hls/1.ts?username=bob&password=secret' })).sort(),
+      ['identifiant en requete'],
+      'identifiants en requete'
+    );
+    assert.deepEqual(
+      envelopeLib.findSecretPatterns(JSON.stringify({ detail: { streamUrl: 'http://host/live/bob/secret/1000.ts' } })).sort(),
+      ['URL de flux'],
+      'URL de flux hors resolveStream'
+    );
+    var refused = null;
+    try {
+      envelopeLib.assertReplySafe({ returnValue: true, data: { url: 'http://user:pass@host/live/1.ts' } });
+    } catch (error) {
+      refused = error;
+    }
+    assert.ok(refused, 'controle de surete declenche');
+  });
+});

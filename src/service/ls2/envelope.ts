@@ -67,12 +67,28 @@ export function assertReplySafe(reply: unknown, limits: ReplyLimits = {}): void 
   }
 }
 
-/** Motifs interdits hors `resolveStream` : identifiants d'URL, segments longs, clé de chiffrement. */
+/**
+ * URL présentes dans une réponse : logos, affiches, icônes EPG. Ce sont des **données** du catalogue,
+ * pas des secrets, et leurs chemins portent souvent des identifiants longs et aléatoires.
+ */
+const URL_DANS_TEXTE = /\bhttps?:\/\/[^\s"'\\]+/gi;
+
+/**
+ * Motifs interdits hors `resolveStream` : identifiants d'URL, segments longs, clé de chiffrement.
+ *
+ * La règle « segment base64 long » vise les **secrets hors URL** (clé de chiffrement, jeton recopié
+ * dans un champ texte). Elle est appliquée après retrait des URL : un logo réel du type
+ * `https://images.pluto.tv/channels/64bab8ba5dc1660008969b5a/colorLogoPNG.png` contient sinon une
+ * suite de plus de 40 caractères de classe base64 et faisait refuser **toute la page** par le service
+ * (défaut constaté en phase 0A sur un catalogue réel) ; les secrets portés par une URL restent
+ * couverts par les règles `userinfo`, `identifiant en requete` et `URL de flux`.
+ */
 export function findSecretPatterns(serialized: string): string[] {
   const found: string[] = [];
   if (/:\/\/[^/\s"']+:[^/\s"']+@/.test(serialized)) found.push('userinfo');
   if (/[?&](username|password|token|token2|user|pass|api_?key|auth|key)=/i.test(serialized)) found.push('identifiant en requete');
-  if (/\b(?:[A-Za-z0-9+/]{40,}={0,2})\b/.test(serialized)) found.push('segment base64 long');
+  const horsUrls = serialized.replace(URL_DANS_TEXTE, ' ');
+  if (/\b(?:[A-Za-z0-9+/]{40,}={0,2})\b/.test(horsUrls)) found.push('segment base64 long');
   if (/"streamUrl"|"url"|"direct_source"/.test(serialized) && /:\/\/[^/\s"']+\/(?:live|movie|series)\//i.test(serialized)) {
     found.push('URL de flux');
   }
