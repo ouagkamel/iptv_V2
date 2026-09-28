@@ -25,9 +25,11 @@ import {
 } from '../crypto/indexCrypto';
 import {
   CATEGORY_NONE,
+  REF_ENTRY_BYTES,
   DEFAULT_INLINE_SIZE,
   SCHEMA_BUCKETS,
   SCHEMA_GROUPS,
+  SCHEMA_REFS,
   SCHEMA_PAYLOAD,
   SCHEMA_RECORDS,
   SCHEMA_TITLE,
@@ -109,6 +111,14 @@ export class CatalogIndexWriter {
   private lastCategory: string | null = null;
   private lastRangeEnd = -1;
   private warnings: string[] = [];
+  /**
+   * Index de références construit pendant l'import : 16 octets d'empreinte + 4 octets d'ordinal par
+   * entrée, triés à la fin pour permettre une **recherche binaire** — l'application demande un détail
+   * ou résout un flux sans jamais balayer le catalogue (§15.2).
+   */
+  private refKeys: Buffer = Buffer.alloc(4096 * REF_ENTRY_BYTES);
+  private refOrdinals: Buffer = Buffer.alloc(4096 * 4);
+  private refCount = 0;
   private finished = false;
   private committed = false;
   private readonly staging: string;
@@ -337,6 +347,8 @@ export class CatalogIndexWriter {
     if (entry.summary) inline.s = clip(entry.summary, MAX_INLINE_TEXT, this.warnings, 'resume tronque');
     const inlinePayload = fitInline(inline, this.inlineSize, this.warnings);
 
+    this.collectRef(entry.refHash, ordinal);
+
     const encoded = encodeRecord({
       sourceOrder: ordinal,
       titleNormalized: normalized,
@@ -375,6 +387,64 @@ export class CatalogIndexWriter {
   }
 
   /** Finalise les fichiers, renvoie le manifeste prêt à être publié (écriture dans le staging). */
+  /** Paramètres de dérivation de clé d'un fichier de l'index (§15.3, `fileKind` dans le sel). */
+  private paramsFor(fileKind: string, schema: string): IndexKeyParams {
+    return {
+      masterKey: this.options.masterKey,
+      profileId: this.options.profileId,
+      contentType: this.options.contentType,
+      indexVersion: this.options.indexVersion,
+      schemaHash: schemaHash(schema),
+      fileKind
+    };
+  }
+
+  /** Ajoute une empreinte de référence à l'index dense (`refHash` hexadécimal de 16 octets). */
+  private collectRef(refHash: string, ordinal: number): void {
+    if (this.refCount * REF_ENTRY_BYTES + REF_ENTRY_BYTES > this.refKeys.length) {
+      const grown = Buffer.alloc(this.refKeys.length * 2);
+      this.refKeys.copy(grown, 0, 0, this.refCount * REF_ENTRY_BYTES);
+      this.refKeys = grown;
+    }
+    if (this.refCount * 4 + 4 > this.refOrdinals.length) {
+      const grown = Buffer.alloc(this.refOrdinals.length * 2);
+      this.refOrdinals.copy(grown, 0, 0, this.refCount * 4);
+      this.refOrdinals = grown;
+    }
+    Buffer.from(refHash.slice(0, 32), 'hex').copy(this.refKeys, this.refCount * REF_ENTRY_BYTES);
+    this.refOrdinals.writeUInt32BE(ordinal, this.refCount * 4);
+    this.refCount += 1;
+  }
+
+  /** Compare deux empreintes de l'index (octet par octet, sans allocation). */
+  private compareRefAt(left: number, right: number): number {
+    const baseLeft = left * REF_ENTRY_BYTES;
+    const baseRight = right * REF_ENTRY_BYTES;
+    for (let index = 0; index < 16; index++) {
+      const difference = this.refKeys[baseLeft + index] - this.refKeys[baseRight + index];
+      if (difference !== 0) return difference;
+    }
+    return this.refOrdinals.readUInt32BE(left * 4) - this.refOrdinals.readUInt32BE(right * 4);
+  }
+
+  /** Écrit `refs.idx` : entrées triées par empreinte, recherchables par dichotomie. */
+  private writeRefsIndex(): { blockCount: number } {
+    const order: number[] = new Array(this.refCount);
+    for (let index = 0; index < this.refCount; index++) order[index] = index;
+    order.sort((left, right) => this.compareRefAt(left, right));
+    const writer = new BlockFileWriter(
+      path.join(this.staging, 'refs.idx'),
+      { params: this.paramsFor('refs', SCHEMA_REFS) }
+    );
+    const record = Buffer.alloc(REF_ENTRY_BYTES);
+    for (let index = 0; index < order.length; index++) {
+      this.refKeys.copy(record, 0, order[index] * REF_ENTRY_BYTES, order[index] * REF_ENTRY_BYTES + 16);
+      record.writeUInt32BE(this.refOrdinals.readUInt32BE(order[index] * 4), 16);
+      writer.write(record);
+    }
+    return writer.finish();
+  }
+
   finish(): { manifest: IndexManifest } {
     if (this.finished) throw new AppError('internal/unexpected', 'index deja finalise');
     this.finished = true;
@@ -385,6 +455,7 @@ export class CatalogIndexWriter {
     const titleResult = this.writeTitleIndex(order, buckets);
     const bucketsResult = this.writeJsonFile('buckets', buckets);
     const groupsResult = this.writeGroups();
+    const refsResult = this.writeRefsIndex();
     const manifest: IndexManifest = {
       profileId: this.options.profileId,
       contentType: this.options.contentType,
@@ -403,14 +474,16 @@ export class CatalogIndexWriter {
         payload: schemaHash(SCHEMA_PAYLOAD),
         title: schemaHash(SCHEMA_TITLE),
         buckets: schemaHash(SCHEMA_BUCKETS),
-        groups: schemaHash(SCHEMA_GROUPS)
+        groups: schemaHash(SCHEMA_GROUPS),
+        refs: schemaHash(SCHEMA_REFS)
       },
       blockCounts: {
         records: recordsResult.blockCount,
         payload: payloadResult.blockCount,
         title: titleResult.blockCount,
         buckets: bucketsResult.blockCount,
-        groups: groupsResult.blockCount
+        groups: groupsResult.blockCount,
+        refs: refsResult.blockCount
       }
     };
     fs.writeFileSync(path.join(this.staging, 'manifest.json'), JSON.stringify(manifest), 'utf8');

@@ -16,6 +16,8 @@ var libRoot = path.join(__dirname, '..', 'service', 'com.ouagkamel.app.iptvplaye
 var writerLib = require(path.join(libRoot, 'service', 'store', 'writer'));
 var readerLib = require(path.join(libRoot, 'service', 'store', 'reader'));
 var manifestLib = require(path.join(libRoot, 'service', 'store', 'manifest'));
+var identityLib = require(path.join(libRoot, 'service', 'store', 'identity'));
+var cryptoLib = require(path.join(libRoot, 'service', 'crypto', 'indexCrypto'));
 var pagesLib = require(path.join(libRoot, 'core', 'pages'));
 var MAX_PAGE_OBJECTS = pagesLib.MAX_PAGE_OBJECTS;
 var MAX_PAGE_BYTES = pagesLib.MAX_PAGE_BYTES;
@@ -315,5 +317,84 @@ harness.describe('Plafonds de page (§15.2) : objets et octets', function () {
     assert.equal(pagesLib.utf8ByteLength('abc'), 3, 'ASCII');
     assert.equal(pagesLib.utf8ByteLength('\u0627\u0644'), 4, 'deux caracteres arabes');
     assert.equal(pagesLib.utf8ByteLength('\uD83D\uDE00'), 4, 'emoji hors BMP');
+  });
+});
+
+/**
+ * Régression : la résolution d'une référence (détail, flux) passait par un **balayage linéaire** du
+ * catalogue — 61 616 lectures de blocs mesurées sur l'import réel de 5 299 chaînes. Elle s'appuie
+ * désormais sur `refs.idx` (`iptv/index/v1/refs:hash16+ordinal4`) et une recherche binaire.
+ */
+harness.describe('Résolution de référence : index dense, recherche binaire (§15.2)', function () {
+  var count = 300;
+  var entries = fixtures.makeEntries(count).map(function (entry, index) {
+    entry.refKey = 'ch-' + index;
+    entry.refHash = identityLib.refHashFor('live', 'ch-' + index);
+    return entry;
+  });
+  var base = tempBase('refs');
+  var refsManifest = buildIndex(base, entries);
+  var reader = openReader(base);
+
+  harness.it('refs.idx publie : 20 octets par entree, aucun remplissage superflu', function () {
+    var target = path.join(base, 'index-v1', 'refs.idx');
+    assert.equal(fs.existsSync(target), true, 'index de references present');
+    var blockBytes = cryptoLib.USABLE_BLOCK_BYTES;
+    var payload = count * 20;
+    var blocks = Math.ceil(payload / blockBytes);
+    var expected = cryptoLib.HEADER_SIZE + blocks * (cryptoLib.BLOCK_SIZE + cryptoLib.TAG_LEN);
+    assert.equal(fs.statSync(target).size, expected, 'taille exacte attendue');
+    assert.equal(refsManifest.blockCounts.refs, blocks, 'blocs declares dans le manifeste');
+  });
+
+  harness.it('resolution par identifiant fournisseur : premier, median, dernier', function () {
+    [0, Math.floor(count / 2), count - 1].forEach(function (index) {
+      var ordinal = reader.findOrdinalByProviderId('ch-' + index);
+      assert.equal(ordinal, index, 'ordinal exact pour ch-' + index);
+      assert.equal(reader.getDetails(ordinal).item.title, entries[index].title, 'detail coherent');
+    });
+  });
+
+  harness.it('pire cas borne par dichotomie : aucune lecture en masse', function () {
+    var calls = 0;
+    var original = reader.refs.readRange;
+    reader.refs.readRange = function (offset, length) {
+      calls += 1;
+      return original.call(reader.refs, offset, length);
+    };
+    try {
+      reader.findOrdinalByProviderId('ch-' + (count - 1));
+      reader.findOrdinalByProviderId('ch-0');
+      reader.findOrdinalByProviderId('ch-151');
+    } finally {
+      reader.refs.readRange = original;
+    }
+    var bound = Math.ceil(Math.log(count) / Math.log(2)) * 3 + 3;
+    assert.ok(calls <= bound, 'lectures bornees (' + calls + ' <= ' + bound + ')');
+    assert.ok(calls < count / 4, 'aucun parcours lineaire du catalogue');
+  });
+
+  harness.it('identifiant absent ou empreinte invalide : null', function () {
+    assert.equal(reader.findOrdinalByProviderId('ch-inconnue'), null, 'reference inconnue');
+    assert.equal(reader.findOrdinalByRefHash('zz'), null, 'empreinte invalide refusee');
+  });
+
+  harness.it('index publie sans refs.idx : repli compatible sur l ancien format', function () {
+    var legacyBase = tempBase('refs-legacy');
+    var source = path.join(base, 'index-v1');
+    var target = path.join(legacyBase, 'index-v1');
+    fs.mkdirSync(target);
+    fs.readdirSync(source).forEach(function (name) {
+      if (name === 'refs.idx') return;
+      fs.copyFileSync(path.join(source, name), path.join(target, name));
+    });
+    fs.copyFileSync(path.join(base, 'manifest.json'), path.join(legacyBase, 'manifest.json'));
+    var legacy = openReader(legacyBase);
+    assert.equal(legacy.findOrdinalByProviderId('ch-' + (count - 1)), count - 1, 'repli fonctionnel');
+    legacy.close();
+  });
+
+  harness.it('fermeture du lecteur de references', function () {
+    reader.close();
   });
 });

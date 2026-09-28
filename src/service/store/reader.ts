@@ -10,6 +10,7 @@
  *  - aucune URL de flux n'est lue hors de `getDetails`/`resolveStream`.
  */
 
+import * as fs from 'fs';
 import type { BucketSet, CatalogItem, CatalogPage, ContentRef, ContentType, Cursor, HostSafety } from '../../contracts/types';
 import { AppError } from '../../contracts/errors';
 import { normalizeQuery, hash32 } from '../../core/normalize';
@@ -17,8 +18,10 @@ import { MAX_PAGE_BYTES, PageAccumulator, makePage } from '../../core/pages';
 import { BlockFileRandomReader, schemaHash, type IndexKeyParams } from '../crypto/indexCrypto';
 import {
   DEFAULT_INLINE_SIZE,
+  REF_ENTRY_BYTES,
   SCHEMA_BUCKETS,
   SCHEMA_GROUPS,
+  SCHEMA_REFS,
   SCHEMA_PAYLOAD,
   SCHEMA_RECORDS,
   SCHEMA_TITLE,
@@ -75,6 +78,7 @@ export class CatalogIndexReader {
   private readonly title: BlockFileRandomReader;
   private readonly buckets: BlockFileRandomReader;
   private readonly groups: BlockFileRandomReader;
+  private readonly refs: BlockFileRandomReader | null;
   private readonly stats: ReaderStats = { blocksRead: 0, recordsRead: 0, payloadsRead: 0, bytesReturned: 0 };
   private groupsCache: GroupSummary[] | null = null;
   private bucketsCache: BucketSet | null = null;
@@ -110,6 +114,11 @@ export class CatalogIndexReader {
     this.title = new BlockFileRandomReader(join(base, 'title.idx'), { params: keyParams('title', SCHEMA_TITLE) });
     this.buckets = new BlockFileRandomReader(join(base, 'buckets.idx'), { params: keyParams('buckets', SCHEMA_BUCKETS) });
     this.groups = new BlockFileRandomReader(join(base, 'groups.bin'), { params: keyParams('groups', SCHEMA_GROUPS) });
+    // index dense des références (facultatif : un index publié par une version antérieure n'en a pas)
+    const refsPath = join(base, 'refs.idx');
+    this.refs = fsExists(refsPath)
+      ? new BlockFileRandomReader(refsPath, { params: keyParams('refs', SCHEMA_REFS) })
+      : null;
     const header = this.title.readRange(0, 8);
     const count = header.readUInt32BE(0);
     const stride = manifest.titleSparseStride || TITLE_SPARSE_STRIDE;
@@ -263,7 +272,28 @@ export class CatalogIndexReader {
     return this.sparseKeyBytes;
   }
 
+  /**
+   * Résolution d'une référence : **recherche binaire** dans `refs.idx` (trié par empreinte), donc
+   * O(log n) lectures de 20 octets — jamais un balayage du catalogue (§15.2). Sans cet index (index
+   * publié par une version antérieure), on retombe sur un parcours borné.
+   */
   findOrdinalByRefHash(refHash: string): number | null {
+    const wanted = refHash.slice(0, 32).toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(wanted)) return null;
+    if (this.refs) {
+      let low = 0;
+      let high = this.entryCount - 1;
+      const target = Buffer.from(wanted, 'hex');
+      while (low <= high) {
+        const middle = (low + high) >> 1;
+        const entry = this.refs.readRange(middle * REF_ENTRY_BYTES, REF_ENTRY_BYTES);
+        const comparison = Buffer.compare(entry.slice(0, 16), target);
+        if (comparison === 0) return entry.readUInt32BE(16);
+        if (comparison < 0) low = middle + 1;
+        else high = middle - 1;
+      }
+      return null;
+    }
     for (let position = 0; position < this.entryCount; position++) {
       const ordinal = this.denseOrdinal(position);
       const slot = this.readSlot(ordinal);
@@ -273,6 +303,7 @@ export class CatalogIndexReader {
   }
 
   close(): void {
+    if (this.refs) this.refs.close();
     this.records.close();
     this.payload.close();
     this.title.close();
@@ -456,3 +487,12 @@ function join(base: string, name: string): string {
 }
 
 export { filePathFor };
+
+/** Présence d'un fichier de l'index (les fichiers facultatifs sont détectés, jamais supposés). */
+function fsExists(target: string): boolean {
+  try {
+    return fs.existsSync(target);
+  } catch (_error) {
+    return false;
+  }
+}

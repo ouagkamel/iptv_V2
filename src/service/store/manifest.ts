@@ -67,6 +67,8 @@ export function filePathFor(baseDir: string, indexVersion: number, kind: FileKin
       return path.join(indexDir(baseDir, indexVersion), 'buckets.idx');
     case 'groups':
       return path.join(indexDir(baseDir, indexVersion), 'groups.bin');
+    case 'refs':
+      return path.join(indexDir(baseDir, indexVersion), 'refs.idx');
   }
 }
 

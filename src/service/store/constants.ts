@@ -9,9 +9,11 @@ export const SCHEMA_PAYLOAD = 'iptv/index/v1/payload';
 export const SCHEMA_TITLE = 'iptv/index/v1/title:sparse32+dense';
 export const SCHEMA_BUCKETS = 'iptv/index/v1/buckets';
 export const SCHEMA_GROUPS = 'iptv/index/v1/groups';
+/** Index dense `refHash → ordinal` : résout une référence en O(log n), jamais par balayage. */
+export const SCHEMA_REFS = 'iptv/index/v1/refs:hash16+ordinal4';
 
 /** Types de fichiers chiffrés ; chacun a son propre sel de dérivation (voir IndexKeyParams). */
-export const FILE_KINDS = ['records', 'payload', 'title', 'buckets', 'groups'] as const;
+export const FILE_KINDS = ['records', 'payload', 'title', 'buckets', 'groups', 'refs'] as const;
 export type FileKind = (typeof FILE_KINDS)[number];
 
 /** Taille de la charge courte enregistrée en ligne dans `records.bin`. */
@@ -22,6 +24,9 @@ export const TITLE_SPARSE_STRIDE = 32;
 
 /** Octets de clé conservés par entrée éparse : 8 normatifs + 8 de discrimination. */
 export const TITLE_SPARSE_KEY_BYTES = 16;
+
+/** Octets par entrée de l'index de références : 16 octets d'empreinte + 4 octets d'ordinal. */
+export const REF_ENTRY_BYTES = 20;
 
 /** Octets par entrée éparse : clé de tri + u32 ordinal source. */
 export const TITLE_SPARSE_ENTRY_BYTES = TITLE_SPARSE_KEY_BYTES + 4;
