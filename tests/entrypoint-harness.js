@@ -30,8 +30,17 @@ function removeTree(target) {
   fs.rmdirSync(target);
 }
 
+/** Création d'arborescence portable : `fs.mkdirSync(dir, {recursive:true})` date de Node 10.12 et
+ * n'existe pas sur la cible Node 8.12 (le défaut n'apparaissait que dans la CI Node 8.12 — le
+ * contrôle `npm run lint:node812` couvre désormais aussi `tests/`). */
+function makeDirs(dir) {
+  var parent = path.dirname(dir);
+  if (parent && parent !== dir && !fs.existsSync(parent)) makeDirs(parent);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+}
+
 function copyTree(from, to) {
-  fs.mkdirSync(to, { recursive: true });
+  makeDirs(to);
   fs.readdirSync(from).forEach(function (name) {
     var source = path.join(from, name);
     var cible = path.join(to, name);
@@ -71,7 +80,7 @@ function preparePackage(name) {
   var racine = fs.mkdtempSync(path.join(os.tmpdir(), 'iptv-entry-' + name + '-'));
   copyTree(SERVICE_DIR, path.join(racine, 'service'));
   var stubDir = path.join(racine, 'service', 'node_modules', 'webos-service');
-  fs.mkdirSync(stubDir, { recursive: true });
+  makeDirs(stubDir);
   fs.writeFileSync(path.join(stubDir, 'package.json'), JSON.stringify({ name: 'webos-service', main: 'index.js' }));
   fs.writeFileSync(path.join(stubDir, 'index.js'), STUB);
   return path.join(racine, 'service');

@@ -17,6 +17,7 @@ manifeste et ses onze commandes : le défaut était dans le **démarrage**, pas 
 | **D-12** | `ERR_INVALID_IP_ADDRESS: Invalid IP address: undefined` | Le `lookup` épinglé renvoyait une chaîne ; Node ≥ 18 interroge `lookup` avec `{all:true}` et attend un **tableau** | forme renvoyée selon `options.all` (chaîne sur Node 8), type `PinnedLookup`, message d'erreur enrichi du code brut |
 | **D-13** | Import/essai refusé sur un portail HTTP clair | Aucun moyen de consentir au « HTTP clair » pour un hôte donné hors saisie d'identifiants | `acceptInsecureHost(hôte, profil?)` + `sessionAcceptedHosts` : le consentement est par hôte, mémorisé pour la session, y compris sans profil |
 | **D-14** | Résolution d'une référence **linéaire** (mesure : 61 616 lectures de blocs pour un seul détail) | `findOrdinalByProviderId` balayait les secteurs `records.bin` à la recherche de l'empreinte | nouveau fichier d'index `iptv/index/v1/refs:hash16+ordinal4` (20 octets par entrée, trié à la fin de l'import) et **recherche binaire** ; repli compatible pour un index publié sans ce fichier ; 6 tests (dont comptage des lectures) |
+| **D-16** | CI rouge **seulement** sur la tâche Node 8.12 | Le harnais de test du point d'entrée utilisait `fs.mkdirSync(dir, {recursive:true})`, apparu en Node 10.12 : la suite passait sur Node 20 et échouait sur la cible réelle | création d'arborescence portable dans le harnais **et** `npm run lint:node812` étendu au dossier `tests/` (un défaut de source trop récente dans les tests casse désormais la tâche Node 20, sans attendre la seconde tâche) |
 | **D-15** | Page **réelle** refusée par le contrôle de sûreté (« reponse refusee par le controle de surete ») | Une URL de logo légitime (`https://images.pluto.tv/channels/64bab8ba5dc1660008969b5a/colorLogoPNG.png`) contient une suite de plus de 40 caractères de classe base64 : la règle « segment base64 long » croyait à un secret | la règle s'applique désormais **hors URL** (les URL de catalogue sont des données ; les secrets portés par une URL restent couverts par `userinfo`, `identifiant en requete` et `URL de flux`) ; 2 tests, dont un rejouant le logo réel |
 
 **Validation sur le portail réel** (hors TV, service embarqué piloté par ses onze commandes LS2, via
@@ -49,6 +50,13 @@ suit cette redirection, l'application ne doit ni épingler ni réécrire l'URL r
 | `com.ouagkamel.app.iptvplayer_0.1.1_all.ipk` | 225 468 o | `690a9184ac18a0721fd121d0011e3bc3778ea2643e2ee8c259b11b14fd8292a2` |
 | `0.1.1.zip` | 479 388 o | `fad5612ade8077085e0104100918ce1d42643994a4ad2dfb010935f3719a0d0d` |
 | `SHA256SUMS.txt` | 5 634 o | (sommes des 62 fichiers de `dist/0.1.1/`) |
+
+La validation du portail a été **rejouée sur Node 8.12.0** (`node-v8.12.0-linux-x64`, OpenSSL 1.0.2p :
+la pile de webOS 6 et non celle du poste de développement) : `testProfile` ok, import de 5 299 chaînes
+en 1,5 s, page de 200 objets, détail sans secret, `resolveStream` puis lecture réelle du flux
+(`HTTP 200 video/mp2t`, `0x47` tous les 188 octets), `diagnostics` annonçant `node: 8.12.0` —
+`CONTROLE REUSSI`, code de sortie 0. La suite de tests y passe également : **149 tests, 0 échec** en
+8.12.0.
 
 Les trois pièces ont été **re-téléchargées depuis l'URL publique** et comparées octet à octet à la
 construction locale (`ar t` du paquet téléchargé conforme). La release `v0.1.0-phase0a` est annotée

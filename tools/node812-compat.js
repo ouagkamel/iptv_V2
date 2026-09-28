@@ -19,11 +19,14 @@ var fs = require('fs');
 var path = require('path');
 
 var ROOT = path.join(__dirname, '..');
-var SCAN_DIRS = ['src/service', 'src/core', 'src/contracts'];
+// `tests` est contrôlé aussi : la CI exécute la suite sur la cible Node 8.12, donc un appel
+// d'API trop récent dans le harnais casse la livraison sans rien dire sur Node 20.
+var SCAN_DIRS = ['src/service', 'src/core', 'src/contracts', 'tests'];
 var BUILD_DIR = path.join(ROOT, 'service', 'com.ouagkamel.app.iptvplayer.service', 'lib');
 
 var BANNED = [
   { pattern: /\bfs\.promises\b/, reason: 'fs.promises apparait en Node 10.1' },
+  { pattern: /mkdirSync\([^)]*recursive\s*:\s*true/, reason: 'fs.mkdirSync recursive apparait en Node 10.12' },
   { pattern: /\bfor\s+await\b/, reason: 'for await apparait en Node 10.0' },
   { pattern: /\bstream\.pipeline\b/, reason: 'stream.pipeline apparait en Node 10.0' },
   { pattern: /\bstream\/promises\b/, reason: 'stream/promises n\'existe pas en Node 8' },
