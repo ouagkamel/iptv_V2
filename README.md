@@ -49,6 +49,11 @@ npm run pack:webos      # produit l'.ipk (nécessite @enact/cli + ares-cli)
 Installation en mode développeur : `ares-install --device tv dist/<paquet>.ipk`.
 Le détail des vérifications à faire **sur la TV** (phase 0A/0B, §12) est dans `docs/PHASE-0.md`.
 
+> **CI** : la configuration se trouve dans `ci/github-workflows-ci.yml` (et non dans
+> `.github/workflows/`). Le jeton utilisé pour le premier envoi n'avait pas la portée `workflow`,
+> que GitHub exige pour écrire un fichier de workflow. Pour l'activer, avec un jeton disposant de
+> cette portée : `mkdir -p .github/workflows && git mv ci/github-workflows-ci.yml .github/workflows/ci.yml`.
+
 ## Sécurité et vie privée
 
 - Aucun secret (URL de flux, identifiant, token) n'est journalisé, ni renvoyé à l'interface, ni

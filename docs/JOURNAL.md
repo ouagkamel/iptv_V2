@@ -25,6 +25,10 @@
   dépendances (`tools/deps-audit.js`), CI à deux cibles (Node 20 pour l'outillage, Node 8.12 pour
   l'artefact).
 
+**Envoi sur GitHub** : commit initial poussé sur `main`. Le fichier de workflow a été déplacé dans
+`ci/github-workflows-ci.yml` : le jeton fourni n'a pas la portée `workflow`, exigée par GitHub pour
+créer `.github/workflows/ci.yml`. Aucun secret n'est présent dans le dépôt.
+
 **Résultat** : `npm test` → **77 tests, 0 échec** ; `npm run lint:node812` → OK ;
 `npm run check:deps` → OK (zéro dépendance d'exécution).
 
