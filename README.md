@@ -53,13 +53,13 @@ Installation en mode développeur :
 npm i -g @webosose/ares-cli      # outillage LG (ares-package, ares-install, ares-launch)
 npm run pack:webos               # compile le service puis écrit release/com.ouagkamel.app.iptvplayer_<version>_all.ipk
 npm run dist                     # assemble dist/<version>/ (ipk + contenu dépaqueté + sommes) et dist/<version>.zip
-ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.0_all.ipk
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.1_all.ipk
 ```
 
 **Téléchargements** : les publications du dépôt (`Releases`) portent l'`.ipk` et l'archive `dist/`
 prêts à installer — dernière en date :
-[`v0.1.0-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.0-phase0a) (paquet de
-diagnostic, phase 0A).
+[`v0.1.1-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.1-phase0a) (paquet de
+diagnostic, phase 0A, **corrigé** — voir `docs/JOURNAL.md`, D-09).
 
 `npm run dist` produit la **livraison téléchargeable** : `dist/<version>/` contient l'`.ipk`, le
 contenu du paquet dépaqueté, `SHA256SUMS.txt` et un `LISEZ-MOI.txt` ; `dist/<version>.zip` est
@@ -71,6 +71,18 @@ Le paquet produit contient le **service complet** et une **page de diagnostic** 
 attendre l'interface Enact (procédure et preuves attendues dans `docs/PHASE-0.md`). L'interface
 Enact de V1-A remplacera cette page à l'étape 3 ; les tests locaux (`npm test`) n'en dépendent pas.
 Le détail des vérifications à faire **sur la TV** (phase 0A/0B, §12) est dans `docs/PHASE-0.md`.
+
+Avant la TV, un portail réel peut être éprouvé **hors appareil** avec le service tel qu'il sera
+embarqué (mêmes commandes, mêmes enveloppes, mêmes contrôles) :
+
+```bash
+IPTV_HOST=portail.example:8080 IPTV_USER=... IPTV_PASS=... npm run verify:portal
+```
+
+Le contrôle enchaîne `testProfile`, `importPlaylist` (progression par abonnement), `getPage`,
+`getBuckets`, `search`, `getDetails`, `resolveStream` puis **lit le flux résolu** (redirections
+suivies, en-tête `video/mp2t`, synchronisation MPEG-TS). Aucun identifiant n'est journalisé et rien
+n'est écrit dans le dépôt ; il n'est pas inclus dans `npm test` (réseau requis).
 
 > **CI** : `.github/workflows/ci.yml` s'exécute à chaque envoi. Deux cibles : l'outillage et la
 > compilation sur Node 20, puis l'artefact du service testé sur **Node 8.12.0** — la version

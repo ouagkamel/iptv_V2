@@ -9,13 +9,13 @@
  * `release/` reste le dossier de travail du paquetage ; `dist/` est la **livraison** :
  *
  *   dist/
- *     0.1.0/
- *       com.ouagkamel.app.iptvplayer_0.1.0_all.ipk
+ *     <version>/
+ *       com.ouagkamel.app.iptvplayer_<version>_all.ipk
  *       app/                                   (application web empaquetée)
  *       service/<id de service>/               (service compilé + services.json)
  *       SHA256SUMS.txt
  *       LISEZ-MOI.txt
- *     0.1.0.zip                                (archive de ce dossier)
+ *     <version>.zip                            (archive de ce dossier)
  *
  * Prérequis : `ares-package` (outillage LG) — voir `tools/make-package.js`.
  */

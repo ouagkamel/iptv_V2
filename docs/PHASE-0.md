@@ -21,12 +21,31 @@ npm run pack:webos                        # compile le service puis produit rele
 # sur la TV : mode développeur activé (application « Developer Mode »), même compte LG que le CLI
 ares-setup-device --add tv --info "host=<IP de la TV>" --passphrase   # la TV affiche la phrase
 ares-device  --device tv --system-info                                # doit répondre : mode développeur visible
-ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.0_all.ipk
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.1_all.ipk
 ares-launch  --device tv com.ouagkamel.app.iptvplayer
 ```
 
 Le mode développeur **expire au bout de 1000 heures** : s'il tombe, `ares-install` répond
 `connection refused` — réactiver l'application Developer Mode sur la TV avant de conclure à un bug.
+
+**Si l'application répond « Service does not exist »** — la version `0.1.0` du paquet en souffrait
+(le service ne s'enregistrait jamais auprès du hub LS2, voir `docs/JOURNAL.md` D-09) : installer la
+version `0.1.1` ou suivante. Pour vérifier que le service est bien enregistré après installation :
+
+```bash
+ares-inspect --device tv --service com.ouagkamel.app.iptvplayer.service --open   # console du service
+luna-send -n 1 -f 'luna://com.ouagkamel.app.iptvplayer.service/diagnostics' '{}'
+```
+
+`luna-send` ne s'exécute que depuis la TV (shell développeur) ; la commande `diagnostics` répond
+`returnValue: true` avec `runtime`, `roots`, `indexes` — et **aucun identifiant**.
+
+**Ce que le portail de test a appris** (portail Xtream réel, essai `npm run verify:portal`) : le
+portail exige un en-tête `User-Agent` (sans lui : HTTP 461) ; le flux est servi **après
+redirection** par un CDN distinct (adresse IP) ; une chaîne absente de l'abonnement est refusée par
+le CDN en **407** (ou 405 pour un identifiant invalide) — c'est une propriété du compte, pas un
+défaut du lecteur. À l'étape 6 du tableau ci-dessous, choisir une chaîne **effectivement comprise
+dans l'abonnement** pour l'essai de lecture.
 
 `release/package/` contient la même arborescence, dépaquetée, pour inspection ; `release/` n'est pas
 versionné (l'`.ipk` est un artefact de build, jamais committé).
@@ -43,6 +62,17 @@ versionné (l'`.ipk` est un artefact de build, jamais committé).
 | 6 | **Détail** puis **Résoudre le flux** | `streamMode` (`storedSecret` ou `derived`) ; `resolveStream` renvoie une URL que la case « afficher l'URL complète » dévoile, et le journal ne contient ni URL ni identifiant |
 | 7 | **Diagnostic du service** à nouveau | `indexes[0].entryCount` = nombre de chaînes du portail, `jobs[]` sans secret |
 | 8 | **Supprimer le profil** | `deleted: true`, `masterKeyRemoved: true`, puis « Page » répond `catalog/indexMissing` |
+
+**Contrôle hors TV, avant de monter sur la TV** (mêmes commandes que l'application, service
+embarqué) :
+
+```bash
+IPTV_HOST=<portail>:8080 IPTV_USER=<compte> IPTV_PASS=<mot de passe> npm run verify:portal   # IPTV_ID=123492 pour viser une chaîne
+```
+
+Le contrôle importe le catalogue live, relit page/tranches/détail, résout un flux et **lit le flux
+pour de bon** (redirections suivies, `video/mp2t`, synchronisation MPEG-TS). Aucun identifiant n'est
+journalisé ; rien n'est écrit dans le dépôt (répertoire temporaire).
 
 **Contrôle hors application** (shell développeur) : les commandes sont `public: false`, donc
 

@@ -1,5 +1,48 @@
 # Journal d'exécution
 
+## 2026-09-28 — Correctifs après premier essai TV + validation sur portail réel (0.1.1)
+
+**Ce qui a été observé sur la TV** : la page de diagnostic appelait le service et recevait
+`{"returnValue":false,"errorCode":-1,"errorText":"Service does not exist:
+com.ouagkamel.app.iptvplayer.service."}`. Le paquet installé (`0.1.0`) contenait bien le service, son
+manifeste et ses onze commandes : le défaut était dans le **démarrage**, pas dans l'empaquetage.
+
+**Défauts corrigés** (chacun avec son test de non-régression) :
+
+| Réf. | Défaut | Cause réelle | Correctif |
+|---|---|---|---|
+| **D-09** | « Service does not exist » sur la TV | Le service démarrait derrière `if (require.main === module)` : lancé par la plateforme comme module `require()`, le garde était faux et le service ne s'enregistrait jamais auprès du hub LS2 (FAQ LG, Q7 : le hub ne connaît que les services qui se sont enregistrés) | `bootstrap(options?)` exporté et **démarrage au chargement** ; le `main` du paquet est un `index.js` en JavaScript brut qui appelle `bootstrap()` sans dépendance ; deux tests rejouent les **deux** modes de chargement (`node index.js` et `require()`) |
+| **D-10** | `testProfile` en échec sur le portail réel | Le portail exige un en-tête `User-Agent` : sans lui, réponse HTTP **461** (« CDN PROXY SERVICE »), avec n'importe quelle valeur, réponse normale | `DEFAULT_USER_AGENT` (`IPTVPlayer/0.1.1 (webOS TV; …)`) appliqué par défaut, surchargeable par requête et **par profil** (persisté en DB8) |
+| **D-11** | Réponse vide alors que le corps est annoncé | Le flux décompressé (gzip) était résolu avant la fin de `zlib` : `response.end` arrive avant la dernière écriture du décompresseur | `finalize()` attend `decompressor.on('end')` |
+| **D-12** | `ERR_INVALID_IP_ADDRESS: Invalid IP address: undefined` | Le `lookup` épinglé renvoyait une chaîne ; Node ≥ 18 interroge `lookup` avec `{all:true}` et attend un **tableau** | forme renvoyée selon `options.all` (chaîne sur Node 8), type `PinnedLookup`, message d'erreur enrichi du code brut |
+| **D-13** | Import/essai refusé sur un portail HTTP clair | Aucun moyen de consentir au « HTTP clair » pour un hôte donné hors saisie d'identifiants | `acceptInsecureHost(hôte, profil?)` + `sessionAcceptedHosts` : le consentement est par hôte, mémorisé pour la session, y compris sans profil |
+| **D-14** | Résolution d'une référence **linéaire** (mesure : 61 616 lectures de blocs pour un seul détail) | `findOrdinalByProviderId` balayait les secteurs `records.bin` à la recherche de l'empreinte | nouveau fichier d'index `iptv/index/v1/refs:hash16+ordinal4` (20 octets par entrée, trié à la fin de l'import) et **recherche binaire** ; repli compatible pour un index publié sans ce fichier ; 6 tests (dont comptage des lectures) |
+| **D-15** | Page **réelle** refusée par le contrôle de sûreté (« reponse refusee par le controle de surete ») | Une URL de logo légitime (`https://images.pluto.tv/channels/64bab8ba5dc1660008969b5a/colorLogoPNG.png`) contient une suite de plus de 40 caractères de classe base64 : la règle « segment base64 long » croyait à un secret | la règle s'applique désormais **hors URL** (les URL de catalogue sont des données ; les secrets portés par une URL restent couverts par `userinfo`, `identifiant en requete` et `URL de flux`) ; 2 tests, dont un rejouant le logo réel |
+
+**Validation sur le portail réel** (hors TV, service embarqué piloté par ses onze commandes LS2, via
+le nouveau `npm run verify:portal`) :
+
+| Étape | Résultat |
+|---|---|
+| `testProfile` | `ok` en 0,6 s — compte `Active`, expiration au 30/09/2026, `max_connections: 1`, formats `["m3u8","ts"]` |
+| `importPlaylist` (live) | `done` — **5 299 chaînes** en 1,1 s (10 messages d'abonnement, phases `downloading → parsing → writing → validating → swapping → done`) |
+| index publié | `records` 664 blocs / `payload` 68 / `title` 6 / `buckets` 1 / `groups` 3 / **`refs` 26** ; 5 299 entrées, état `valid` |
+| `getPage` / `getBuckets` / `search` | 200 objets en 9 ms (plafond §15.2 respecté), 27 tranches alphabétiques, recherche bornée sans parcours linéaire |
+| résolution de référence | **500 / 500** identifiants résolus et cohérents en 118 ms (0,24 ms par référence, détail inclus) — contre un balayage complet auparavant |
+| `getDetails` | 400 octets, `streamRef` opaque (`v1:0:7e8d475e`), `streamMode: derived`, **aucun motif interdit** (contrôle du service lui-même) |
+| `resolveStream` | 1 ms — `derived`, `video/mp2t` |
+| lecture réelle du flux | 302 → CDN, puis **HTTP 200 `video/mp2t`**, 1 053 059 octets lus, synchronisation `0x47` tous les 188 octets |
+| `diagnostics` | runtime, racines embarquées (121 certificats), index publiés, capacités — sans secret |
+
+**À retenir pour la suite** : le portail répond **407** (chaîne absente de l'abonnement) ou **405**
+(identifiant invalide) au niveau du CDN, après redirection — c'est un refus **par chaîne**, pas une
+erreur du lecteur ; V1-A doit le présenter comme « chaîne non disponible dans l'abonnement ». Le flux
+est servi par un hôte CDN distinct (adresse IP) après redirection : le pipeline média du téléviseur
+suit cette redirection, l'application ne doit ni épingler ni réécrire l'URL résolue.
+
+**Livraison** : version **0.1.1**, `npm run dist` → `dist/0.1.1/` + `dist/0.1.1.zip`, publication
+`v0.1.1-phase0a` (l'`.ipk` et l'archive), `npm test` → **149 tests, 0 échec**.
+
 ## 2026-09-28 — Paquet de diagnostic (phase 0A)
 
 **Périmètre livré** : l'interface Enact n'existe pas encore (étape 3), mais le socle peut déjà être
