@@ -25,8 +25,12 @@ sont présents. Ce qui reste à faire **sur la TV** est listé dans `docs/PHASE-
 huit étapes avec la preuve attendue à chacune).
 
 **Livraison** : `npm run dist` assemble `dist/<version>/` (l'`.ipk`, le contenu dépaqueté
-`app/` + `service/`, `SHA256SUMS.txt`, `LISEZ-MOI.txt`) et l'archive `dist/<version>.zip`, publiées
-en **release GitHub** (`v0.1.0-phase0a`, pré-version) avec l'`.ipk` en pièce jointe séparée.
+`app/` + `service/`, `SHA256SUMS.txt`, `LISEZ-MOI.txt`) et l'archive `dist/<version>.zip`.
+
+**Publication GitHub** : release `v0.1.0-phase0a` (pré-version) avec trois pièces jointes —
+`com.ouagkamel.app.iptvplayer_0.1.0_all.ipk` (221 474 o, sha256 `290fa4bc…`), `0.1.0.zip`
+(470 864 o) et `SHA256SUMS.txt` — téléchargées ensuite depuis l'URL publique et comparées octet à
+octet à la construction locale.
 
 **Ce que ce paquet ne prouve pas** : le lecteur `<video>` (0B), les écrans Enact, le D-pad complet
 sur quatre écrans (ils n'existent pas encore) — la page de diagnostic remplace seulement le socle

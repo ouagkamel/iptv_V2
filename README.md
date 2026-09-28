@@ -56,6 +56,11 @@ npm run dist                     # assemble dist/<version>/ (ipk + contenu dépa
 ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.0_all.ipk
 ```
 
+**Téléchargements** : les publications du dépôt (`Releases`) portent l'`.ipk` et l'archive `dist/`
+prêts à installer — dernière en date :
+[`v0.1.0-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.0-phase0a) (paquet de
+diagnostic, phase 0A).
+
 `npm run dist` produit la **livraison téléchargeable** : `dist/<version>/` contient l'`.ipk`, le
 contenu du paquet dépaqueté, `SHA256SUMS.txt` et un `LISEZ-MOI.txt` ; `dist/<version>.zip` est
 l'archive prête à joindre à une publication GitHub. Les publications du dépôt portent cette archive
