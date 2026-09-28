@@ -1,5 +1,63 @@
 # Journal d'exécution
 
+## 2026-09-28 — Étape 2 : service (réseau, DB8, Xtream, import reprenable, LS2)
+
+**Périmètre livré** :
+
+- **client HTTP du service (§2.5)** : redirections bornées à 5 avec schéma/hôte/port revalidés à
+  chaque saut, en-têtes sensibles retirés au changement d'origine, DNS résolu puis **épinglé**
+  (adresses privées, loopback, link-local, CGNAT refusées), bundle de racines publiques embarqué
+  (`assets/roots.pem`, 121 certificats, option `ca` seule — `rejectUnauthorized` jamais désactivé),
+  décompression gzip/deflate locale, plafonds octets + plafond fil, pause/reprise du flux ;
+- **parseur JSON incrémental** : analyse au fil de l'eau du tableau racine (mémoire bornée), JSON
+  tronqué refusé (`provider/badResponse`), racine tableau livrée élément par élément ;
+- **DB8 (§2.4, §15.1)** : `Db8Client` + kinds **versionnés** par ID d'application, dépôts profils,
+  clé maître (32 o, base64, kind dédié), `ImportJob`, consentements, favoris et reprises ;
+  `deleteProfile` efface le profil, ses données et **détruit la clé maître** ; `redactProfile`
+  n'expose jamais identifiant ni adresse porteuse de secret ; `FakeDb8Bus` permet les tests sans TV ;
+- **adaptateur Xtream (§5.1)** : validation runtime de chaque champ (`user_info`, catégories, flux,
+  séries), appel « tous les flux » par défaut avec **repli par catégorie** documenté, URLs de
+  lecture construites pour live/VOD/épisode, `direct_source` classé selon la présence
+  d'identifiants, aucune URL dans les journaux (forme « hôte + chemin masqué ») ;
+- **import reprenable (§2.4, §15.5)** : job persistant (`downloading → parsing → writing →
+  validating → swapping → done`), points de reprise sérialisés, `entriesRead` = entrées **indexées**,
+  validation stricte `entryCount === entries − skipped` avant bascule, échec = staging conservé
+  scellé et index en place, annulation coopérative ;
+- **couche LS2 (§2.6, §15.4)** : les onze commandes du manifeste, enveloppe unique
+  `{ returnValue, indexVersion?, data?, error? }`, plafonds (≤ 200 objets, ≤ 256 Kio, détail ≤ 32 Kio,
+  `resolveStream` ≤ 8 Kio), contrôle anti-fuite avant envoi, une seule souscription et une seule
+  opération lourde par profil (`catalog/busy`), diagnostic local sans secret.
+
+**Vérification** : `npm test` → **137 tests, 0 échec** (dont 16 nouveaux sur la couche LS2 :
+commandes du manifeste, refus d'identifiants sans second essai, phases persistées, `catalog/busy`,
+annulation, pagination sans URL, `streamRef` opaque, `resolveStream` seule voie vers une URL,
+`deleteProfile`, diagnostic) ; `npm run lint:node812` → OK (source **et** artefact) ;
+`npm run check:deps` → OK.
+
+### Décisions et écarts (suite)
+
+| Réf. | Décision | Motif | Statut |
+|---|---|---|---|
+| **D-06** | Un import interrompu **redémarre à sa source** avec un staging neuf ; le staging conservé est scellé et inspectable (`CatalogIndexWriter.inspectStaging`) mais on n'y **ajoute** pas d'enregistrements | Ajouter après un bloc scellé obligerait à réutiliser le couple (clé, nonce) du dernier bloc ou à aligner chaque enregistrement de 512 o sur des blocs de 4096 — les deux sont exclus par le format du §15.3 et par le NIST SP 800-38D. La reprise reste exacte parce que la source est relue (les N premières entrées déjà indexées sont ignorées de façon déterministe) | testé (échec → staging conservé → reprise → index identique à un import complet, empreintes comparées) — à confirmer par l'auteur de la spec |
+| **D-07** | `importPlaylist` importe **un** type de contenu par appel (`contentType`, défaut `live`) | `done` est terminal dans la machine d'état du §15.5 : un même job ne peut pas recommencer un cycle `downloading → …` sans sortir du contrat. L'application enchaîne les types au rythme des incréments (live en V1-A, vod en V1-B, séries en V1-C) | testé (job live et job vod indépendants, versions d'index séparées) |
+| **D-08** | `testProfile` renvoie un **verdict** (`{ ok, errors[] }`) même quand les identifiants sont refusés | C'est la forme imposée par la table du §15.4 ; un échec d'appel LS2 y ajouterait une couche d'erreur redondante. Le mot de passe n'est jamais renvoyé ni journalisé | testé |
+
+### Points restés ouverts (conformément au §15.6)
+
+- seuils mémoire exacts du service (RSS, taille de lot de parsing) : après mesures 0D ;
+- `searchIndexKind` par défaut : `title` retenu provisoirement ; `title+tokens` dépend du budget disque ;
+- seuil de longueur du « segment porteur d'identifiant » : valeur par défaut **24 caractères**,
+  exposée dans `urltools.DEFAULT_CREDENTIAL_SEGMENT_MIN_LENGTH` et couverte par un test
+  d'acceptation (les URL de CDN publiques ne doivent pas être classées secrètes).
+
+### Prochaine étape (étape 3)
+
+1. Interface Enact 3.4.9 / Sandstone 1.4.6 + Spotlight : accueil, profils, Live TV (catégories,
+   chaînes), lecteur natif `<video>` alimenté par `resolveStream()`, réglages et diagnostic ;
+2. machine d'état du lecteur câblée sur le média réel (coalescence 400 ms, message unique après
+   10–15 s, re-résolution unique) ;
+3. `README` de développement de l'interface et budgets de démarrage (Chromium 79 / webOS 6).
+
 ## 2026-09-28 — Étape 1 : socle et contrats
 
 **Périmètre livré** (voir `docs/PLAN.md` pour la traçabilité complète) :

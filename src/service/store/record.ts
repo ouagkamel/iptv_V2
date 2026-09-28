@@ -51,6 +51,14 @@ export function sortKey(titleNormalized: string, bytes: number = SORT_KEY_BYTES)
   return key;
 }
 
+/**
+ * Sentinelle de secteur (offset 90, zone de remplissage). Elle permet de distinguer, à la reprise
+ * d'un import (§15.5), un secteur réellement écrit du remplissage à zéro — sans elle, une entrée
+ * sans titre ni charge serait indiscernable d'un secteur non écrit.
+ */
+export const SLOT_SENTINEL_OFFSET = 90;
+export const SLOT_SENTINEL = 0xbeef;
+
 export const FLAG_HAS_CREDENTIAL = 0x01;
 export const FLAG_HAS_EPG_ID = 0x02;
 export const FLAG_PLAYABLE = 0x04;
@@ -170,6 +178,7 @@ export function encodeRecord(input: RecordSlotInput): EncodedRecord {
   Buffer.from(input.refHash, 'hex').copy(slot, 16 + TITLE_NORMALIZED_BYTES, 0, REF_HASH_BYTES);
   prefixKey(input.titleNormalized).copy(slot, 16 + TITLE_NORMALIZED_BYTES + REF_HASH_BYTES);
   slot.writeUInt16BE(input.inlinePayload.length, 88); // inlineLength (zone de remplissage du secteur)
+  slot.writeUInt16BE(SLOT_SENTINEL, SLOT_SENTINEL_OFFSET);
   return { slot, inlinePayload: input.inlinePayload, heavyPayload: input.heavyPayload };
 }
 
@@ -184,6 +193,11 @@ export interface DecodedSlot {
   titleNormalized: string;
   refHash: string;
   prefixKey: Buffer;
+}
+
+/** Vrai si ce secteur a réellement été écrit (reprise d'import). */
+export function hasRecordSentinel(slot: Buffer): boolean {
+  return slot.length >= SLOT_SENTINEL_OFFSET + 2 && slot.readUInt16BE(SLOT_SENTINEL_OFFSET) === SLOT_SENTINEL;
 }
 
 export function decodeSlot(slot: Buffer): DecodedSlot {

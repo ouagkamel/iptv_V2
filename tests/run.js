@@ -23,4 +23,11 @@ files.forEach(function (name) {
   require(path.join(__dirname, name));
 });
 
-harness.run();
+var outcome = harness.run();
+if (outcome && typeof outcome.then === 'function') {
+  // les tests asynchrones impriment le bilan eux-memes ; on absorbe un rejet eventuel
+  outcome.then(function () {}, function (err) {
+    console.error(err && err.stack ? err.stack : String(err));
+    process.exitCode = 1;
+  });
+}

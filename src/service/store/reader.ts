@@ -26,6 +26,7 @@ import {
   TITLE_SPARSE_KEY_BYTES,
   TITLE_SPARSE_STRIDE
 } from './constants';
+import { detailRefFor, refHashFor } from './identity';
 import { filePathFor, indexDir, readManifest, type IndexManifest } from './manifest';
 import {
   decodeHeavyPayload,
@@ -241,7 +242,22 @@ export class CatalogIndexReader {
     return { item: this.buildItem(ordinal, record.slot, record.inline), heavy };
   }
 
-  /** Recherche de l'ordinal d'une entrée à partir de son `refHash` (contrôle, tests, reprise). */
+  /** Recherche par identifiant fournisseur : utilisée par `getDetails`/`resolveStream` (§15.4). */
+  findOrdinalByProviderId(providerIdOrKey: string): number | null {
+    return this.findOrdinalByRefHash(refHashFor(this.options.contentType, providerIdOrKey));
+  }
+
+  /** Mode de flux d'une entrée, lu dans les drapeaux du secteur (jamais déduit d'une URL). */
+  streamMode(ordinal: number): 'storedSecret' | 'derived' | 'urlNoSecret' {
+    return decodeStreamMode(this.readSlot(ordinal).flags);
+  }
+
+  /** Référence opaque d'un détail — jamais une URL (§15.1). */
+  detailRef(ordinal: number): string {
+    const slot = this.readSlot(ordinal);
+    return detailRefFor(this.indexVersion, ordinal, slot.refHash);
+  }
+
   /** Diagnostic : clé de tri effectivement utilisée par l'index épars. */
   get sortKeyBytes(): number {
     return this.sparseKeyBytes;

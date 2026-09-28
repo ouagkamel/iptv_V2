@@ -282,14 +282,33 @@ export class BlockFileWriter {
   private blockIndex = 0;
   private closed = false;
 
-  constructor(filePath: string, private readonly options: FileCryptoOptions) {
+  /**
+   * `append: true` rouvre un fichier existant **à la suite** du dernier bloc complet (reprise
+   * d'import, §15.5). L'en-tête est relu pour connaître le nombre de blocs déjà écrits, puis
+   * réécrit à la fin avec la nouvelle valeur : aucune écriture partielle n'est exposée.
+   */
+  constructor(filePath: string, private readonly options: FileCryptoOptions, append = false) {
     const fsImpl = options.fsImpl || fs;
-    this.fd = fsImpl.openSync(filePath, 'w');
+    if (append) {
+      this.fd = fsImpl.openSync(filePath, 'r+');
+      const header = Buffer.alloc(HEADER_SIZE);
+      const read = fsImpl.readSync(this.fd, header, 0, HEADER_SIZE, 0);
+      if (read !== HEADER_SIZE) throw new AppError('catalog/corrupt', 'fichier d index tronque (en-tete)');
+      this.blockIndex = parseHeader(header).blockCount;
+    } else {
+      this.fd = fsImpl.openSync(filePath, 'w');
+      this.blockIndex = 0;
+      fsImpl.writeSync(this.fd, buildHeader(options.params, 0), 0, HEADER_SIZE, 0);
+    }
     this.buffer = Buffer.alloc(BLOCK_SIZE, 0);
-    fsImpl.writeSync(this.fd, buildHeader(options.params, 0), 0, HEADER_SIZE, 0);
   }
 
   get blocksWritten(): number {
+    return this.blockIndex;
+  }
+
+  /** Blocs déjà présents dans le fichier (mode ajout compris). */
+  get blockCount(): number {
     return this.blockIndex;
   }
 
@@ -325,6 +344,22 @@ export class BlockFileWriter {
   }
 
   finish(): { blockCount: number } {
+    return this.seal();
+  }
+
+  /**
+   * Scelle le fichier : le bloc en cours est écrit, l'en-tête est mis à jour avec le nombre de blocs
+   * réellement valides, puis le descripteur est fermé. Un fichier **scellé** se relit en mode ajout
+   * (reprise d'import, §15.5) ; un fichier laissé ouvert ne serait pas relisible.
+   */
+  seal(options?: { padLastBlock?: boolean }): { blockCount: number } {
+    if (this.closed) return { blockCount: this.blockIndex };
+    if (options && options.padLastBlock && this.used > 0 && this.used < USABLE_BLOCK_BYTES) {
+      // Le bloc partiel est complété **par des zéros écrits comme données** : le fichier se termine
+      // alors sur une frontière de bloc, ce qui rend l'ajout possible sans réutiliser un couple
+      // (clé, nonce) — réécrire un bloc scellé serait une faute cryptographique (§15.3).
+      this.used = USABLE_BLOCK_BYTES;
+    }
     if (this.used > 0 || this.blockIndex === 0) this.flushBlock();
     const fsImpl = this.options.fsImpl || fs;
     const header = buildHeader(this.options.params, this.blockIndex);
@@ -433,6 +468,17 @@ export class BlockFileRandomReader {
   }
 
   readonly header: HeaderInfo;
+
+  /**
+   * Longueur réelle des données écrites : les blocs sont complétés par du remplissage, donc
+   * `blockCount × 4092` surestime la fin du fichier. Utilisé par la reprise d'import pour ne pas
+   * lire au-delà de ce qui a été scellé.
+   */
+  get dataLength(): number {
+    if (this.header.blockCount === 0) return 0;
+    const last = this.block(this.header.blockCount - 1);
+    return (this.header.blockCount - 1) * USABLE_BLOCK_BYTES + last.length;
+  }
 
   readRange(offset: number, length: number): Buffer {
     if (length === 0) return Buffer.alloc(0);

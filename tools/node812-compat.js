@@ -42,15 +42,39 @@ var BANNED = [
   { pattern: /\bAbortController\b/, reason: 'AbortController global apparait en Node 15' },
   { pattern: /\bnew TextEncoder\b/, reason: 'TextEncoder global apparait en Node 11 (en Node 8 : require("util").TextEncoder)' },
   { pattern: /\bnavigator\.clipboard\b/, reason: 'API navigateur absente du service' },
-  { pattern: /crypto\.hkdf\b/, reason: 'crypto.hkdf apparait en Node 15 (implémentation locale requise)' },
-  { pattern: /\brequire\(['"][^.'"][^'"]*['"]\)/, reason: 'dépendance externe : le service doit rester sans dépendance d\'exécution' }
+  { pattern: /crypto\.hkdf\b/, reason: 'crypto.hkdf apparait en Node 15 (implémentation locale requise)' }
+  // les `require` sont contrôlés séparément : modules du cœur et module de plateforme admis (voir
+  // `checkRequires`) — une dépendance installée reste refusée dans la source comme dans l'artefact
 ];
 
 /** Modules Node autorisés dans l'artefact (tous présents en 8.12). */
 var ALLOWED_MODULES = [
   'crypto', 'fs', 'path', 'url', 'http', 'https', 'zlib', 'os', 'util', 'events', 'stream',
-  'net', 'tls', 'querystring', 'string_decoder', 'assert', 'buffer', 'child_process'
+  'net', 'tls', 'dns', 'querystring', 'string_decoder', 'assert', 'buffer', 'child_process'
 ];
+
+/**
+ * Modules fournis par la **plateforme** webOS, jamais installés : ce ne sont pas des dépendances
+ * d'exécution au sens du §2.3 (`webos-service` est le pont LS2 du service natif).
+ */
+var PLATFORM_MODULES = ['webos-service'];
+
+/**
+ * Contrôle des `require` d'un fichier : relatifs (internes), modules du cœur de Node 8.12 et module
+ * de plateforme sont admis ; tout le reste est une dépendance d'exécution interdite.
+ */
+function checkRequires(relative, source, problems) {
+  var requireRe = /require\(["']([^"']+)["']\)/g;
+  var match;
+  while ((match = requireRe.exec(source)) !== null) {
+    var moduleName = match[1];
+    if (moduleName.charAt(0) === '.') continue;
+    var base = moduleName.split('/')[0];
+    if (ALLOWED_MODULES.indexOf(base) !== -1) continue;
+    if (PLATFORM_MODULES.indexOf(base) !== -1) continue;
+    problems.push(relative + ' — module externe ' + moduleName + " interdit dans le service (zéro dépendance d'exécution, §2.3)");
+  }
+}
 
 /**
  * Retire commentaires de bloc et de ligne avant l'analyse : une explication citant une API
@@ -139,6 +163,7 @@ SCAN_DIRS.forEach(function (dir) {
         }
       });
     });
+    checkRequires(relative, source, problems);
   });
 });
 
@@ -155,16 +180,7 @@ if (fs.existsSync(BUILD_DIR)) {
         }
       });
     });
-    var requireRe = /require\(["']([^"']+)["']\)/g;
-    var match;
-    while ((match = requireRe.exec(source)) !== null) {
-      var moduleName = match[1];
-      if (moduleName.charAt(0) === '.') continue;
-      var base = moduleName.split('/')[0];
-      if (ALLOWED_MODULES.indexOf(base) === -1) {
-        problems.push(relative + ' — module externe ' + moduleName + ' interdit dans le service (zéro dépendance d\'exécution, §2.3)');
-      }
-    }
+    checkRequires(relative, source, problems);
   });
 } else {
   console.log('[info] artefact non compilé : executer `npm run build:service` pour le controle du bundle');

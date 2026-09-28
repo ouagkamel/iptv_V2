@@ -182,6 +182,8 @@ export interface ProfileInput {
   lanAllowed?: boolean;
   /** consentement de mémorisation du profil (§3.5, §8.2) */
   persistSecrets?: boolean;
+  /** vrai si des identifiants sont mémorisés pour ce profil — jamais un identifiant lui-même (§9.2) */
+  hasCredentials?: boolean;
 }
 
 export interface Profile extends ProfileInput {
@@ -225,6 +227,31 @@ export interface ProviderAdapter {
   getEpg(channelRef: ContentRef, range: { fromUtc: number; toUtc: number }): Promise<Program[]>;
   resolveStream(ref: ContentRef, requestedFormat?: 'auto' | 'hls' | 'ts'): Promise<StreamResolution>;
   startRefresh(profileId: string, options: RefreshOptions): Promise<{ jobId: string }>;
+}
+
+/** Favori : identifié par `ContentRef`, jamais par une URL (§5.3). */
+export interface FavoriteRecord {
+  ref: ContentRef;
+  profileId: string;
+  lastSeenName: string;
+  updatedAt: number;
+  matchState: 'exact' | 'reassociated' | 'orphan';
+}
+
+export interface PlaybackPosition {
+  ref: ContentRef;
+  profileId: string;
+  positionSeconds: number;
+  durationSeconds?: number;
+  updatedAt: number;
+  completed: boolean;
+}
+
+export interface EpgMapping {
+  ref: ContentRef;
+  epgChannelId: string;
+  matchMethod: 'tvg-id' | 'name' | 'manual';
+  updatedAt: number;
 }
 
 export interface Program {

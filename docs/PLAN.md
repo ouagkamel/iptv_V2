@@ -12,10 +12,10 @@ ligne n'est cochée sans preuve.
 | **Socle (étape 1)** | Contrats §15.1, crypto d'index §15.3, index/recherche §15.2, machines d'état §15.5, normalisation §9.3, scripts §9.1, hôtes §5.2, outillage CI | **oui** — `src/contracts`, `src/core`, `src/service/crypto`, `src/service/store`, `tests/`, `tools/` (77 tests) | non requis |
 | **0A — socle plateforme** | Manifest §2.6 (`appinfo.json`, `services.json`, `commands` non publiques), socle CI (Node 8.12 + Chromium 79) | partie : manifest + CI ; les écrans factices arrivent avec V1-A | **oui** : `ares-install`, journaux LS2, DB8, écriture `/media/internal`, ACG réellement accordées (`docs/PHASE-0.md`) |
 | **0B — lecteur** | Machine d'état lecteur + `NativeHtmlVideoPlayer` (V1-A) | machine d'état livrée et testée ; lecteur à écrire | **oui** : HLS, MPEG-TS progressif, MIME absent, redirects, codecs, 1080i — batterie *smoke* puis *qualification* (§11.2) |
-| **0C — un fournisseur de chaque type** | Adaptateur Xtream (V1-A), import M3U (V1-D) | à écrire | **oui** : portail Xtream et playlist M3U autorisés, comptes de test dédiés |
-| **0D — gros catalogue, secrets, réseau** | Index chiffré, `ImportJob`, quotas | crypto et index livrés et testés ; import reprenable à écrire | **oui** : 250 k entrées / 256 Mio, RSS, pic disque, TLS par pile, racine récente |
+| **0C — un fournisseur de chaque type** | Adaptateur Xtream (V1-A), import M3U (V1-D) | **oui pour Xtream** (étape 2 : `src/service/providers`, client HTTP §2.5) ; M3U reste en V1-D | **oui** : portail Xtream et playlist M3U autorisés, comptes de test dédiés |
+| **0D — gros catalogue, secrets, réseau** | Index chiffré, `ImportJob`, quotas | **oui** (étapes 1–2 : crypto, index, `ImportJob` persistant, import reprenable, bundle de racines embarqué) | **oui** : 250 k entrées / 256 Mio, RSS, pic disque, TLS par pile, racine récente |
 | **Contrôle de distribution** | Question écrite à LG Seller Lounge, self-checklist | trame de question dans `docs/PHASE-0.md` | **oui** — go/no-go bloquant, à trancher avant V1-B |
-| **V1-A** | Xtream (profil, test, consentement, erreurs normalisées), Live TV (catégories/chaînes), lecteur `resolveStream()`, diagnostic local, quatre cartes, remote/Spotlight, routeur/Retour | service : `testProfile`, `getPage`, `getBuckets`, `resolveStream`, `diagnostics` — **à écrire à l'étape 2** ; interface Enact **étape 3** | mesures D-pad et p95 |
+| **V1-A** | Xtream (profil, test, consentement, erreurs normalisées), Live TV (catégories/chaînes), lecteur `resolveStream()`, diagnostic local, quatre cartes, remote/Spotlight, routeur/Retour | **service complet** (étape 2 : onze commandes LS2 §15.4, import live, `resolveStream`, diagnostic) ; interface Enact **étape 3** | mesures D-pad et p95 |
 | **V1-B** | EPG, favoris, reprise, VOD (grille, fiche, recherche indexée, saut alphabétique), barre de navigation persistante | — | — |
 | **V1-C** | Séries (saisons, épisodes, recherche sur titres), états d'écran normalisés | — | — |
 | **V1-D** | M3U (identité `logicalKey`/`variantKey`), gros catalogues, import reprenable, sélection de groupes | — | — |
@@ -40,6 +40,11 @@ ligne n'est cochée sans preuve.
 | §5.2 marquage des hôtes privés (décimal/octal/hex, IPv6, IPv4 encapsulée), autorisation LAN | `src/core/hostSafety.ts` | `tests/normalize.test.js` |
 | §5.2 `hasCredential` par analyse, préfixe porteur d'identifiants | `src/core/urltools.ts` | `tests/normalize.test.js` |
 | §2.3 zéro dépendance d'exécution, API Node 8.12 uniquement | `tools/node812-compat.js`, `tools/deps-audit.js` | CI (les deux cibles) |
+| §2.5 client HTTP (redirects bornés, IP épinglée, en-têtes retirés, gzip, plafonds) | `src/service/http/*` | `tests/http.test.js` |
+| §5.1 appel « tous les flux » d'abord, repli par catégorie, validation runtime | `src/service/providers/xtream.ts` | `tests/providers.test.js` |
+| §15.4 protocole LS2, plafonds, une opération lourde par profil, aucune URL hors `resolveStream` | `src/service/ls2/*` | `tests/service.test.js` |
+| §15.5 import reprenable : phases, points de reprise, staging conservé, bascule atomique | `src/service/import/xtreamImport.ts`, `src/service/store/writer.ts` | `tests/import.test.js` |
+| §3.5/§8.2 consentement et modes `storedSecret`/`derived`/`urlNoSecret` | `src/service/import/xtreamImport.ts`, `src/service/db8/repositories.ts` | `tests/import.test.js`, `tests/service.test.js` |
 
 ## Écarts et décisions prises (à valider par l'auteur de la spécification)
 

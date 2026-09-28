@@ -14,9 +14,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { BucketSet, ContentType } from '../../contracts/types';
 import { AppError } from '../../contracts/errors';
+import { mkdirRecursive } from './fsutil';
 import { accumulateNormalized, buildBucketSet, createBucketAccumulator } from '../../core/scripts';
 import { normalizeTitle } from '../../core/normalize';
 import {
+  BlockFileRandomReader,
   BlockFileWriter,
   schemaHash,
   type IndexKeyParams
@@ -36,9 +38,11 @@ import {
 import { commitManifest, filePathFor, markSwapTimestamp, stagingDir, type IndexManifest } from './manifest';
 import {
   decodeInlinePayload,
+  decodeSlot,
   encodeHeavyPayload,
   encodeInlinePayload,
   encodeRecord,
+  hasRecordSentinel,
   sortKey,
   SLOT_SIZE,
   TITLE_NORMALIZED_BYTES,
@@ -110,15 +114,26 @@ export class CatalogIndexWriter {
   private readonly staging: string;
   private recordSize: number;
 
-  constructor(options: CatalogWriterOptions) {
+  /**
+   * `resume` rouvre un staging interrompu (§15.5) : les fichiers chiffrés sont rouverts à la suite
+   * du dernier bloc, et l'état interne (compteurs, groupes, plages, clés de tri) est **reconstruit
+   * en relisant les secteurs déjà écrits**. Aucune donnée de tri non vérifiée n'est supposée.
+   */
+  constructor(options: CatalogWriterOptions, resume?: { inlineSize: number; recordSize: number }) {
     this.options = options;
-    this.inlineSize = options.inlineSize || DEFAULT_INLINE_SIZE;
-    this.recordSize = SLOT_SIZE + this.inlineSize;
+    this.inlineSize = resume ? resume.inlineSize : options.inlineSize || DEFAULT_INLINE_SIZE;
+    this.recordSize = resume ? resume.recordSize : SLOT_SIZE + this.inlineSize;
     this.staging = stagingDir(options.baseDir, options.indexVersion);
-    if (fs.existsSync(this.staging)) {
-      throw new AppError('catalog/busy', 'un import est deja en cours pour ce profil');
+    if (resume) {
+      if (!fs.existsSync(this.staging)) {
+        throw new AppError('catalog/indexMissing', 'aucun index temporaire a reprendre');
+      }
+    } else {
+      if (fs.existsSync(this.staging)) {
+        throw new AppError('catalog/busy', 'un import est deja en cours pour ce profil');
+      }
+      mkdirRecursive(this.staging);
     }
-    mkdirRecursive(this.staging);
     this.params = {
       masterKey: options.masterKey,
       profileId: options.profileId,
@@ -127,22 +142,126 @@ export class CatalogIndexWriter {
       schemaHash: schemaHash(SCHEMA_RECORDS),
       fileKind: 'records'
     };
-    this.recordsWriter = new BlockFileWriter(path.join(this.staging, 'records.bin'), {
-      params: this.params
-    });
-    this.payloadWriter = new BlockFileWriter(path.join(this.staging, 'payload.bin'), {
-      params: {
-        masterKey: options.masterKey,
-        profileId: options.profileId,
-        contentType: options.contentType,
-        indexVersion: options.indexVersion,
-        schemaHash: schemaHash(SCHEMA_PAYLOAD),
-        fileKind: 'payload'
-      }
-    });
+    this.recordsWriter = new BlockFileWriter(
+      path.join(this.staging, 'records.bin'),
+      { params: this.params },
+      Boolean(resume)
+    );
+    this.payloadWriter = new BlockFileWriter(
+      path.join(this.staging, 'payload.bin'),
+      {
+        params: {
+          masterKey: options.masterKey,
+          profileId: options.profileId,
+          contentType: options.contentType,
+          indexVersion: options.indexVersion,
+          schemaHash: schemaHash(SCHEMA_PAYLOAD),
+          fileKind: 'payload'
+        }
+      },
+      Boolean(resume)
+    );
     this.capacity = 1024;
     this.titleKeys = Buffer.alloc(this.capacity * TITLE_KEY_BYTES);
     this.titlesText = Buffer.alloc(this.capacity * TITLE_NORMALIZED_BYTES);
+    if (resume) this.restoreFromStaging();
+    else this.writeStagingState();
+  }
+
+  /** Fichier d'état du staging : non secret (compteurs et tailles, aucun titre, aucune URL). */
+  private writeStagingState(): void {
+    fs.writeFileSync(
+      path.join(this.staging, 'staging.json'),
+      JSON.stringify({
+        profileId: this.options.profileId,
+        contentType: this.options.contentType,
+        indexVersion: this.options.indexVersion,
+        inlineSize: this.inlineSize,
+        recordSize: this.recordSize,
+        createdAt: Date.now()
+      }),
+      'utf8'
+    );
+  }
+
+  /** Reconstruit l'état interne depuis les secteurs écrits (source de vérité : `records.bin`). */
+  private restoreFromStaging(): void {
+    const recordsPath = path.join(this.staging, 'records.bin');
+    const reader = new BlockFileRandomReader(recordsPath, { params: this.params });
+    try {
+      const maxRecords = Math.floor(reader.dataLength / this.recordSize);
+      this.ensureCapacity(Math.max(1024, maxRecords));
+      let ordinal = 0;
+      while (ordinal < maxRecords) {
+        const bytes = reader.readRange(ordinal * this.recordSize, this.recordSize);
+        const slot = bytes.slice(0, SLOT_SIZE);
+        if (!hasRecordSentinel(slot)) break;
+        const decoded = decodeSlot(slot);
+        const inlineBytes = bytes.slice(SLOT_SIZE, SLOT_SIZE + decoded.inlineLength);
+        const inline = decodeInlinePayload(inlineBytes);
+        const categoryId = inline.g || CATEGORY_NONE;
+        if (!this.groups[categoryId]) {
+          this.groups[categoryId] = {
+            id: categoryId,
+            name: categoryId === CATEGORY_NONE ? 'Sans groupe' : categoryId,
+            sourceOrder: Object.keys(this.groups).length,
+            count: 0,
+            ranges: []
+          };
+        }
+        const group = this.groups[categoryId];
+        group.count += 1;
+        if (this.lastCategory === categoryId && this.lastRangeEnd === ordinal - 1) {
+          group.ranges[group.ranges.length - 1][1] = ordinal;
+        } else {
+          group.ranges.push([ordinal, ordinal]);
+        }
+        this.lastCategory = categoryId;
+        this.lastRangeEnd = ordinal;
+        const normalizedBytes = decodeSlot(slot).titleNormalized;
+        sortKey(normalizedBytes, TITLE_SPARSE_KEY_BYTES).copy(this.titleKeys, ordinal * TITLE_KEY_BYTES);
+        this.titleKeys.writeUInt32BE(ordinal, ordinal * TITLE_KEY_BYTES + TITLE_SPARSE_KEY_BYTES);
+        const folded = Buffer.alloc(TITLE_NORMALIZED_BYTES, 0);
+        Buffer.from(normalizedBytes, 'utf8').copy(folded, 0, 0, TITLE_NORMALIZED_BYTES - 1);
+        folded.copy(this.titlesText, ordinal * TITLE_NORMALIZED_BYTES);
+        ordinal += 1;
+      }
+      this.count = ordinal;
+      this.payloadOffset = payloadDataLength(this.staging, this.options);
+    } finally {
+      reader.close();
+    }
+  }
+
+  /**
+   * Inspecte un staging conservé (import interrompu) **sans rien y écrire** : compteurs, groupes et
+   * octets de charge, tels qu'ils étaient au dernier point de reprise. Sert au diagnostic local et à
+   * `getImportJob` ; la reprise d'un import redémarre la source interrompue avec un staging neuf
+   * (voir JOURNAL, décision « reprise »).
+   */
+  static inspectStaging(options: CatalogWriterOptions): {
+    entryCount: number;
+    payloadBytes: number;
+    categories: string[];
+  } {
+    const staging = stagingDir(options.baseDir, options.indexVersion);
+    const stateFile = path.join(staging, 'staging.json');
+    if (!fs.existsSync(stateFile)) {
+      throw new AppError('catalog/indexMissing', 'staging sans etat : rien a inspecter');
+    }
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as { inlineSize: number; recordSize: number };
+    if (state.recordSize !== SLOT_SIZE + state.inlineSize) {
+      throw new AppError('catalog/corrupt', 'etat de staging incoherent');
+    }
+    const writer = new CatalogIndexWriter(options, state);
+    const categories = Object.keys(writer.groups);
+    return { entryCount: writer.count, payloadBytes: writer.payloadOffset, categories: categories };
+  }
+
+  /** Supprime un staging conservé (reimport propre de la même source). */
+  static discardStaging(options: CatalogWriterOptions): void {
+    const staging = stagingDir(options.baseDir, options.indexVersion);
+    if (fs.existsSync(staging)) removeDir(staging);
   }
 
   get entryCount(): number {
@@ -199,7 +318,11 @@ export class CatalogIndexWriter {
     const normalized = normalizeTitle(entry.title);
     const heavy: HeavyPayload = {};
     if (entry.plot) heavy.p = entry.plot;
-    if (entry.streamMode === 'storedSecret' && entry.streamUrl) heavy.u = entry.streamUrl;
+    if ((entry.streamMode === 'storedSecret' || entry.streamMode === 'urlNoSecret') && entry.streamUrl) {
+      // `storedSecret` : URL porteuse d'identifiants, chiffrée au repos ; `urlNoSecret` : URL publique
+      // imposée par le portail, non reconstituable mais sans secret
+      heavy.u = entry.streamUrl;
+    }
     if (entry.streamMode === 'derived' && entry.streamForm) heavy.f = entry.streamForm;
     if (entry.refKey) heavy.id = entry.refKey;
     const hasHeavy = Object.keys(heavy).length > 0;
@@ -305,7 +428,30 @@ export class CatalogIndexWriter {
     this.committed = true;
   }
 
-  /** Abandon : rien de l'index validé n'est touché (§15.5). */
+  /**
+   * Abandon **en conservant** le staging : utilisé quand l'import échoue (échec réseau, service
+   * arrêté). Rien de l'index validé n'est touché, et une reprise ultérieure reste possible.
+   */
+  abortStagingKeep(): void {
+    if (this.committed) return;
+    this.finished = true;
+    // Scellement : l'en-tête est mis à jour et le dernier bloc partiel est écrit, ce qui rend le
+    // staging **relisible pour diagnostic** (compteurs, groupes) sans permettre d'y ajouter des
+    // enregistrements : reprendre un index partiel demanderait d'aligner les enregistrements sur
+    // les blocs (voir JOURNAL, décision « reprise »), sinon le couple (clé, nonce) serait réutilisé.
+    try {
+      this.recordsWriter.seal();
+    } catch (_err) {
+      /* best-effort */
+    }
+    try {
+      this.payloadWriter.seal();
+    } catch (_err) {
+      /* best-effort */
+    }
+  }
+
+  /** Abandon : rien de l'index validé n'est touché et le staging est supprimé (§15.5). */
   abort(): void {
     if (this.committed) return;
     try {
@@ -493,16 +639,6 @@ function pad4(length: number): number {
 }
 
 /** `fs.mkdirSync(..., {recursive:true})` n'existe pas dans les types Node 8 : création manuelle. */
-function mkdirRecursive(target: string): void {
-  if (fs.existsSync(target)) return;
-  const parent = path.dirname(target);
-  if (parent !== target && !fs.existsSync(parent)) mkdirRecursive(parent);
-  try {
-    fs.mkdirSync(target);
-  } catch (err) {
-    if (!fs.existsSync(target)) throw err;
-  }
-}
 
 function removeDir(target: string): void {
   if (!fs.existsSync(target)) return;
@@ -515,3 +651,27 @@ function removeDir(target: string): void {
 }
 
 export { decodeInlinePayload };
+
+/**
+ * Fin **physique** de `payload.bin` : les blocs sont complétés par des zéros, donc la somme des
+ * longueurs déclarées ne suffit pas — c'est la position réelle qui fait foi pour reprendre l'ajout.
+ */
+function payloadDataLength(staging: string, options: CatalogWriterOptions): number {
+  const file = path.join(staging, 'payload.bin');
+  if (!fs.existsSync(file)) return 0;
+  const reader = new BlockFileRandomReader(file, {
+    params: {
+      masterKey: options.masterKey,
+      profileId: options.profileId,
+      contentType: options.contentType,
+      indexVersion: options.indexVersion,
+      schemaHash: schemaHash(SCHEMA_PAYLOAD),
+      fileKind: 'payload'
+    }
+  });
+  try {
+    return reader.dataLength;
+  } finally {
+    reader.close();
+  }
+}
