@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Lecteur IPTV — diagnostic de service</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="webOSTV.js"></script>
+<style>
+  :root {
+    --fond: #0b1220;
+    --carte: #141d2f;
+    --bord: #21304a;
+    --texte: #e9f0f8;
+    --doux: #8fa6c0;
+    --accent: #5ed0ff;
+    --ok: #6ee7a8;
+    --erreur: #ff8f8f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--fond); color: var(--texte);
+    font-family: "LG Smart UI", "Helvetica Neue", Arial, sans-serif; font-size: 18px; }
+  body { padding: 36px 48px 48px; overflow-y: auto; }
+  h1 { font-size: 30px; margin: 0 0 4px; }
+  h2 { font-size: 20px; margin: 0 0 12px; color: var(--accent); font-weight: 600; }
+  .sous { color: var(--doux); margin: 0 0 24px; font-size: 16px; }
+  .grille { display: grid; grid-template-columns: 460px 1fr; gap: 24px; align-items: start; }
+  .carte { background: var(--carte); border: 1px solid var(--bord); border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
+  label { display: block; color: var(--doux); font-size: 14px; margin: 10px 0 4px; }
+  input, select { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--bord);
+    background: #0e1626; color: var(--texte); font-size: 16px; }
+  button { margin: 8px 8px 0 0; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--bord);
+    background: #1b2942; color: var(--texte); font-size: 16px; cursor: pointer; }
+  button:focus { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button.principal { background: #17415a; border-color: #20698f; }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: "DejaVu Sans Mono", monospace;
+    font-size: 14px; line-height: 1.45; max-height: 46vh; overflow: auto; }
+  .journal { max-height: 22vh; overflow: auto; font-size: 13px; color: var(--doux); }
+  .ligne { border-bottom: 1px solid #1a2740; padding: 3px 0; }
+  .ok { color: var(--ok); }
+  .ko { color: var(--erreur); }
+  .rang { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .etat { font-size: 15px; color: var(--doux); }
+  .aide { font-size: 13px; color: var(--doux); margin-top: 8px; line-height: 1.5; }
+  code { color: var(--accent); }
+</style>
+</head>
+<body>
+  <h1>Lecteur IPTV — coquille de diagnostic</h1>
+  <p class="sous">Phase 0A : commandes LS2 du service, DB8, stockage privé, TLS. L'interface Enact
+  arrive à l'étape 3 — cette page ne sert qu'à prouver le socle sur la TV.</p>
+
+  <div class="grille">
+    <div>
+      <div class="carte">
+        <h2>Appareil</h2>
+        <div id="appareil" class="etat">lecture…</div>
+      </div>
+
+      <div class="carte">
+        <h2>Source Xtream</h2>
+        <label for="profil">Identifiant de profil</label>
+        <input id="profil" value="p1">
+        <label for="url">Adresse du portail</label>
+        <input id="url" placeholder="https://portail.example.com:8080" value="">
+        <label for="utilisateur">Nom d'utilisateur</label>
+        <input id="utilisateur" value="">
+        <label for="motdepasse">Mot de passe</label>
+        <input id="motdepasse" type="password" value="">
+        <div class="rang">
+          <button id="btn-test" class="principal">Tester la source</button>
+          <button id="btn-import">Importer (live)</button>
+          <button id="btn-annuler">Annuler l'import</button>
+        </div>
+        <div class="aide">Les identifiants ne quittent jamais la TV et ne sont pas journalisés.
+        Décochez <em>Mémoriser</em> pour tester le mode <code>derived</code> (URL reconstruite à la lecture).</div>
+        <label><input type="checkbox" id="memoriser" checked style="width:auto"> Mémoriser les identifiants de ce profil</label>
+      </div>
+
+      <div class="carte">
+        <h2>Lecture</h2>
+        <label for="contenu">Type de contenu</label>
+        <select id="contenu">
+          <option value="live">live</option>
+          <option value="vod">vod</option>
+          <option value="series">series</option>
+        </select>
+        <label for="flux">Identifiant fournisseur (chaîne, film, épisode)</label>
+        <input id="flux" value="1000">
+        <div class="rang">
+          <button id="btn-page">Page</button>
+          <button id="btn-tranches">Tranches</button>
+          <button id="btn-recherche">Recherche</button>
+          <button id="btn-detail">Détail</button>
+          <button id="btn-resoudre" class="principal">Résoudre le flux</button>
+        </div>
+        <label><input type="checkbox" id="afficherurl" style="width:auto"> Afficher l'URL complète (elle est une donnée de session)</label>
+      </div>
+
+      <div class="carte">
+        <h2>Entretien</h2>
+        <div class="rang">
+          <button id="btn-diagnostic" class="principal">Diagnostic du service</button>
+          <button id="btn-job">État de l'import</button>
+          <button id="btn-supprimer">Supprimer le profil</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="carte">
+        <h2>Réponse du service</h2>
+        <pre id="sortie">—</pre>
+      </div>
+      <div class="carte">
+        <h2>Journal de la page</h2>
+        <div id="journal" class="journal"></div>
+      </div>
+    </div>
+  </div>
+
+<script src="diagnostic.js"></script>
+</body>
+</html>

@@ -6,6 +6,49 @@ copie d'écran, réponse écrite), jamais par extrapolation.
 
 ## 0A — Socle applicatif et plateforme
 
+### Paquet de diagnostic (prêt à installer)
+
+Tant que l'interface Enact n'existe pas (étape 3), le dépôt fournit un **paquet de diagnostic** :
+le service complet (§15.4) plus une page web minimale qui appelle ses onze commandes à la
+télécommande. Il sert à prouver le socle sur la TV — LS2, DB8, permissions, stockage privé, TLS —
+sans attendre l'interface.
+
+```bash
+npm ci                                    # outillage de développement
+npm i -g @webosose/ares-cli               # outillage LG (ares-package, ares-install)
+npm run pack:webos                        # compile le service puis produit release/*.ipk
+ares-setup-device --list                  # TV en mode développeur : clé + IP
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.0_all.ipk
+ares-launch  --device tv com.ouagkamel.app.iptvplayer
+```
+
+`release/package/` contient la même arborescence, dépaquetée, pour inspection ; `release/` n'est pas
+versionné (l'`.ipk` est un artefact de build, jamais committé).
+
+**Séquence à exécuter sur la TV** (chaque étape a une preuve attendue) :
+
+| Étape | Action dans la page | Preuve attendue |
+|---|---|---|
+| 1 | **Diagnostic du service** | `returnValue: true`, `runtime.node = 8.12.x`, version d'OpenSSL du firmware, `roots.chain` = bundle embarqué, `indexes: []` (aucun index encore) |
+| 2 | **Tester la source** (portail de test dédié) | `data.ok: true` avec `account.status`, `expiresAt`, `formats` ; aucun identifiant dans le journal |
+| 3 | **Importer (live)** | progression `downloading → parsing → writing → validating → swapping → done`, puis `data.final: true` |
+| 4 | **État de l'import** | `job.phase: done`, compteurs cohérents après redémarrage de la TV |
+| 5 | **Page** / **Tranches** | `items[]` avec `ref.providerId`, **aucune URL** ; tranches alphabétiques non vides |
+| 6 | **Détail** puis **Résoudre le flux** | `streamMode` (`storedSecret` ou `derived`) ; `resolveStream` renvoie une URL que la case « afficher l'URL complète » dévoile, et le journal ne contient ni URL ni identifiant |
+| 7 | **Diagnostic du service** à nouveau | `indexes[0].entryCount` = nombre de chaînes du portail, `jobs[]` sans secret |
+| 8 | **Supprimer le profil** | `deleted: true`, `masterKeyRemoved: true`, puis « Page » répond `catalog/indexMissing` |
+
+**Contrôle hors application** (shell développeur) : les commandes sont `public: false`, donc
+
+```bash
+luna-send -n 1 -f 'luna://com.ouagkamel.app.iptvplayer.service/diagnostics' '{}'
+```
+
+doit répondre depuis l'application, tandis qu'un appel émis depuis une **autre** application doit
+échouer (contrôle 0A « aucune commande appelable depuis une autre application »).
+
+---
+
 - [ ] `ares-package` + `ares-install` du paquet sur la TV webOS 6 moyenne/faible.
 - [ ] Spotlight : D-pad complet sur quatre écrans factices, mode pointeur, clavier virtuel.
 - [ ] Touche **Back (461)** : une pression = un niveau ; comportement à la racine.

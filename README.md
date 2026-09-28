@@ -47,7 +47,18 @@ npm run check:deps      # refuse une dépendance d'exécution non justifiée
 npm run pack:webos      # produit l'.ipk (nécessite @enact/cli + ares-cli)
 ```
 
-Installation en mode développeur : `ares-install --device tv dist/<paquet>.ipk`.
+Installation en mode développeur :
+
+```bash
+npm i -g @webosose/ares-cli      # outillage LG (ares-package, ares-install, ares-launch)
+npm run pack:webos               # compile le service puis écrit release/com.ouagkamel.app.iptvplayer_<version>_all.ipk
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.0_all.ipk
+```
+
+Le paquet produit contient le **service complet** et une **page de diagnostic** télécommandable
+(`src/app/`) qui appelle les onze commandes LS2 : elle permet d'exécuter la phase 0A sur la TV sans
+attendre l'interface Enact (procédure et preuves attendues dans `docs/PHASE-0.md`). L'interface
+Enact de V1-A remplacera cette page à l'étape 3 ; les tests locaux (`npm test`) n'en dépendent pas.
 Le détail des vérifications à faire **sur la TV** (phase 0A/0B, §12) est dans `docs/PHASE-0.md`.
 
 > **CI** : `.github/workflows/ci.yml` s'exécute à chaque envoi. Deux cibles : l'outillage et la

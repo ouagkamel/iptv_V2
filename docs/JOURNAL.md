@@ -1,5 +1,33 @@
 # Journal d'exécution
 
+## 2026-09-28 — Paquet de diagnostic (phase 0A)
+
+**Périmètre livré** : l'interface Enact n'existe pas encore (étape 3), mais le socle peut déjà être
+éprouvé sur un téléviseur. Le dépôt fournit donc :
+
+- `src/app/` — page web minimale, sans dépendance, télécommandable : appareil (`webOS.deviceInfo`),
+  test de source, import avec progression par abonnement, page/tranches/recherche/détail,
+  résolution de flux (URL masquée par défaut), diagnostic, suppression de profil. Deux ponts LS2
+  acceptés (`webOS.service.request` ou `PalmServiceBridge`) ; les identifiants ne quittent pas la TV
+  et ne sont jamais journalisés ;
+- `src/app/assets/` — icônes 80/130 et fond d'écran, produits par script (aucune ressource
+  distante : le paquet doit fonctionner hors ligne) ;
+- `tools/make-package.js` — prépare l'arborescence (application + service compilé), appelle
+  `ares-package` (outillage LG, seul juge du format `.ipk`), puis copie le résultat dans `release/`
+  avec une version dépaquetée pour inspection ;
+- scripts `npm run pack:webos` / `pack:app` ; `release/` est ignoré par git.
+
+**Vérification** : `ares-package` réussit ; le `.ipk` (221 474 octets) contient
+`usr/palm/applications/com.ouagkamel.app.iptvplayer/` (page + visuels) et
+`usr/palm/services/com.ouagkamel.app.iptvplayer.service/` (`services.json`, `package.json`, `lib/`
+compilé, `assets/roots.pem`) ; les trois membres `debian-binary`, `control.tar.gz`, `data.tar.gz`
+sont présents. Ce qui reste à faire **sur la TV** est listé dans `docs/PHASE-0.md` §0A (séquence en
+huit étapes avec la preuve attendue à chacune).
+
+**Ce que ce paquet ne prouve pas** : le lecteur `<video>` (0B), les écrans Enact, le D-pad complet
+sur quatre écrans (ils n'existent pas encore) — la page de diagnostic remplace seulement le socle
+applicatif et le service.
+
 ## 2026-09-28 — Étape 2 : service (réseau, DB8, Xtream, import reprenable, LS2)
 
 **Périmètre livré** :

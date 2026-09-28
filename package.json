@@ -16,8 +16,9 @@
     "lint:node812": "node tools/node812-compat.js",
     "check:deps": "node tools/deps-audit.js",
     "verify": "npm run lint:node812 && npm run check:deps && npm run typecheck && npm test",
-    "pack:webos": "npm run build:service && enact pack -p --webos && ares-package dist service/com.ouagkamel.app.iptvplayer.service -o dist",
-    "test:service-compile": "node tests/run.js"
+    "pack:webos": "npm run build:service && node tools/make-package.js",
+    "test:service-compile": "node tests/run.js",
+    "pack:app": "node tools/make-package.js"
   },
   "devDependencies": {
     "@types/node": "^8.10.66",
