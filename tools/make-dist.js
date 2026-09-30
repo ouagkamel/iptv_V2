@@ -15,7 +15,9 @@
  *       service/<id de service>/               (service compilé + services.json)
  *       SHA256SUMS.txt
  *       LISEZ-MOI.txt
+ *       simulateur/                            (dossiers a selectionner dans le simulateur webOS)
  *     <version>.zip                            (archive de ce dossier)
+ *     <version>-simulateur.zip                 (archive du seul pack simulateur)
  *
  * Prérequis : `ares-package` (outillage LG) — voir `tools/make-package.js`.
  *
@@ -128,6 +130,33 @@ function main() {
   var inspection = path.join(RELEASE, 'package');
   if (fs.existsSync(inspection)) copierArborescence(inspection, dossier);
 
+  // 2bis) pack du simulateur : le meme contenu, mais presente comme le simulateur l'attend
+  // (une racine d'application et une racine de service a selectionner dans ses menus)
+  var simulateur = null;
+  var outilSimulateur = require('./stage-simulator');
+  var etape = childProcess.spawnSync(process.execPath, [path.join(__dirname, 'stage-simulator.js')], { stdio: 'inherit' });
+  if (etape.status === 0 && fs.existsSync(outilSimulateur.CIBLE)) {
+    // le pack simulateur a **deja** sa forme finale (app/ + service/ + LISEZ-MOI) : on le copie tel
+    // quel. `copierArborescence` sert au contenu empaquete (fichiers a plat + service/), pas ici.
+    copyTree(outilSimulateur.CIBLE, path.join(dossier, 'simulateur'));
+    fs.writeFileSync(
+      path.join(dossier, 'simulateur', 'LISEZ-MOI-SIMULATEUR.txt'),
+      outilSimulateur.LISEZ_MOI,
+      'utf8'
+    );
+    simulateur = path.join(DIST, version + '-simulateur.zip');
+    if (fs.existsSync(simulateur)) fs.unlinkSync(simulateur);
+    // archive **a plat** : le `LISEZ-MOI` demande d'extraire dans un dossier personnel puis de
+    // selectionner `app/` et `service/<id>/` — l'archive doit donc porter ces deux dossiers a sa
+    // racine, sans prefixe de version (une archive imbriquee rendrait le mode d'emploi faux).
+    var zipSim = childProcess.spawnSync(
+      'zip',
+      ['-qr', simulateur, '.'],
+      { cwd: path.join(dossier, 'simulateur'), stdio: 'inherit' }
+    );
+    if (zipSim.status !== 0 || !fs.existsSync(simulateur)) simulateur = null;
+  }
+
   var lignes = [
     '# Paquet de diagnostic — phase 0A',
     '',
@@ -194,6 +223,9 @@ function main() {
   console.log('[dist] dossier  : ' + path.relative(ROOT, dossier));
   console.log('[dist] paquet   : ' + path.relative(ROOT, ipk) + ' (' + fs.statSync(ipk).size + ' octets)');
   console.log('[dist] sha256   : ' + sha256(ipk));
+  if (simulateur) {
+    console.log('[dist] simulateur : ' + path.relative(ROOT, simulateur) + ' (' + fs.statSync(simulateur).size + ' octets)');
+  }
   console.log('[dist] archive  : ' + path.relative(ROOT, archive) + ' (' + fs.statSync(archive).size + ' octets)');
 }
 

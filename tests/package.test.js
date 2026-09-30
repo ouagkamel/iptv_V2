@@ -18,6 +18,16 @@ var os = require('os');
 var path = require('path');
 var vm = require('vm');
 var outilDist = require('../tools/make-dist');
+var outilSimulateur = require('../tools/stage-simulator');
+var mainLib = require(path.join(
+  __dirname,
+  '..',
+  'service',
+  'com.ouagkamel.app.iptvplayer.service',
+  'lib',
+  'service',
+  'main'
+));
 
 var SERVICE_DIR = banc.SERVICE_DIR;
 var APP_DIR = path.join(__dirname, '..', 'src', 'app');
@@ -305,5 +315,103 @@ harness.describe('Livraison dist : copie exhaustive de l application', function 
     // seule la fonction de copie est exportee, le reste vit derriere `require.main === module`
     assert.equal(typeof outilDist.copierArborescence, 'function', 'fonction de copie exportee');
     assert.deepEqual(Object.keys(outilDist).sort(), ['copierArborescence'], 'aucun autre export');
+  });
+});
+
+/**
+ * Le **simulateur** n'installe pas de `.ipk` : il lance l'application depuis un dossier et n'accepte
+ * un service que s'il est ajouté explicitement (menu *File > Add Service*). Le pack simulateur doit
+ * donc présenter deux racines sélectionnables — et le mode d'emploi avec, sinon le symptôme observé
+ * (« Service does not exist » alors que l'application tourne) se reproduit.
+ */
+harness.describe('Pack simulateur : racines sélectionnables et mode d emploi', function () {
+  /** Création d'arborescence portable (`mkdirSync` récursif date de Node 10.12 : hors cible). */
+  function dossiers(dir) {
+    var parent = path.dirname(dir);
+    if (parent !== dir && !fs.existsSync(parent)) dossiers(parent);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+  }
+
+  function ecrire(racine, relatif, contenu) {
+    var cible = path.join(racine, relatif);
+    dossiers(path.dirname(cible));
+    fs.writeFileSync(cible, contenu);
+  }
+
+  harness.it('app/ et service/<id>/ sont produits a partir du contenu empaquete', function () {
+    var racine = fs.mkdtempSync(path.join(os.tmpdir(), 'iptv-simu-'));
+    var inspection = path.join(racine, 'package');
+    var cible = path.join(racine, 'simulator');
+    ecrire(inspection, 'appinfo.json', '{"id":"com.exemple.app","main":"index.html","version":"9.9.9"}');
+    ecrire(inspection, 'index.html', '<script src="webos-bridge.js"></script><script src="diagnostic.js"></script>');
+    ecrire(inspection, 'webos-bridge.js', '// pont');
+    ecrire(inspection, 'diagnostic.js', '// page');
+    ecrire(inspection, 'assets/icone.png', 'png');
+    ecrire(inspection, 'service/com.exemple.app.service/package.json', '{"name":"com.exemple.app.service","main":"index.js"}');
+    ecrire(inspection, 'service/com.exemple.app.service/services.json', '{"services":[{"name":"com.exemple.app.service"}]}');
+    ecrire(inspection, 'service/com.exemple.app.service/index.js', "require('./lib/service/main');");
+    ecrire(inspection, 'service/com.exemple.app.service/lib/service/main.js', 'exports.bootstrap = function () {};');
+
+    outilSimulateur.preparerPackSimulateur(inspection, cible);
+
+    // racine d'application : appinfo.json et le fichier `main` qu'il designe, cote a cote
+    var appRoot = path.join(cible, 'app');
+    assert.equal(fs.existsSync(path.join(appRoot, 'appinfo.json')), true, 'appinfo.json a la racine de app/');
+    var appinfo = JSON.parse(fs.readFileSync(path.join(appRoot, 'appinfo.json'), 'utf8'));
+    assert.equal(fs.existsSync(path.join(appRoot, appinfo.main)), true, 'fichier main present a cote d appinfo.json');
+    assert.equal(fs.existsSync(path.join(appRoot, 'webos-bridge.js')), true, 'pont embarque livre');
+    assert.equal(fs.existsSync(path.join(appRoot, 'assets')), true, 'visuels livres');
+    assert.equal(fs.existsSync(path.join(appRoot, 'service')), false, 'le service n est pas dans app/');
+
+    // racine de service : package.json + services.json + main
+    var serviceRoot = path.join(cible, 'service', 'com.exemple.app.service');
+    var paquet = JSON.parse(fs.readFileSync(path.join(serviceRoot, 'package.json'), 'utf8'));
+    assert.equal(fs.existsSync(path.join(serviceRoot, paquet.main)), true, 'main du service present');
+    var manifesteSimu = JSON.parse(fs.readFileSync(path.join(serviceRoot, 'services.json'), 'utf8'));
+    assert.equal(manifesteSimu.services[0].name, paquet.name, 'services.json et package.json decrivent le meme service');
+
+    // mode d'emploi : les deux menus du simulateur, et l'avertissement qui manquait
+    var lisezMoi = fs.readFileSync(path.join(cible, 'LISEZ-MOI-SIMULATEUR.txt'), 'utf8');
+    assert.ok(lisezMoi.indexOf('Add Service') !== -1, 'menu Add Service cite');
+    assert.ok(lisezMoi.indexOf('Launch App') !== -1, 'menu Launch App cite');
+    assert.ok(lisezMoi.indexOf('Service does not exist') !== -1, 'symptome explique');
+    assert.ok(lisezMoi.indexOf('package.json') !== -1, 'racine du service decrite');
+
+    banc.removeTree(racine);
+  });
+
+  harness.it('un empaquetage absent est refuse clairement', function () {
+    var racine = fs.mkdtempSync(path.join(os.tmpdir(), 'iptv-simu-vide-'));
+    var refus = null;
+    try {
+      outilSimulateur.preparerPackSimulateur(path.join(racine, 'rien'), path.join(racine, 'simulator'));
+    } catch (erreur) {
+      refus = erreur;
+    }
+    assert.ok(refus, 'erreur levee');
+    void refus;
+    banc.removeTree(racine);
+  });
+});
+
+/**
+ * Hors téléviseur (simulateur, poste de développement), `/media/internal` n'existe pas : le service
+ * doit se rabattre sur un répertoire utilisable **sans** renoncer à s'enregistrer — un service non
+ * enregistré est précisément le défaut « Service does not exist ».
+ */
+harness.describe('Répertoire de travail du service : repli hors téléviseur', function () {
+  harness.it('un repertoire inscriptible est utilise tel quel', function () {
+    var racine = fs.mkdtempSync(path.join(os.tmpdir(), 'iptv-stock-'));
+    var choisi = mainLib.resolveStorageRoot(path.join(racine, 'donnees'));
+    assert.equal(choisi.repli, false, 'pas de repli quand le chemin est creable');
+    assert.equal(fs.existsSync(choisi.storageRoot), true, 'repertoire cree');
+    banc.removeTree(racine);
+  });
+
+  harness.it('un chemin non creable declenche le repli, sans exception', function () {
+    var choisi = mainLib.resolveStorageRoot('/proc/iptv-interdit/donnees');
+    assert.equal(choisi.repli, true, 'repli signale');
+    assert.equal(choisi.storageRoot.indexOf('iptv-webos-') !== -1, true, 'repli sous le repertoire temporaire : ' + choisi.storageRoot);
+    assert.equal(fs.existsSync(choisi.storageRoot), true, 'repertoire de repli utilisable');
   });
 });

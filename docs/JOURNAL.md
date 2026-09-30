@@ -1,5 +1,35 @@
 # Journal d'exécution
 
+## 2026-09-30 — Simulateur webOS : pourquoi le service n'y est pas « connu » (0.1.4)
+
+**Ce qui a été observé** : l'erreur persiste (`Service does not exist:
+com.ouagkamel.app.iptvplayer.service`) — mais l'essai se fait **sur le simulateur webOS**, pas sur la
+TV. Ce n'est pas un défaut du paquet : le simulateur fonctionne autrement.
+
+| Réf. | Constat | Correctif |
+|---|---|---|
+| **D-21** | Le **simulateur n'installe pas de `.ipk`** : il lance une application depuis un **dossier** (*File > Launch App*) et n'accepte un service que s'il est **ajouté explicitement** (*File > Add Service*), puis démarré (*Tools > Service List*). Un service déclaré seulement dans un paquet n'est donc jamais enregistré auprès du bus du simulateur : toute requête répond « Service does not exist », alors que l'application, elle, tourne | `npm run stage:simulator` produit `release/simulator/` avec les **deux racines à sélectionner** (`app/`, `service/<id>/`) et un `LISEZ-MOI-SIMULATEUR.txt` ; `npm run dist` l'ajoute à `dist/<version>/simulateur/` et produit `dist/<version>-simulateur.zip` (archive **à plat**, pour que le mode d'emploi « extraire dans un dossier personnel » soit exact) ; section « Simulateur webOS » de `docs/PHASE-0.md` |
+| **D-22** | Hors téléviseur, `/media/internal` n'existe pas : le service répondait « répertoire indisponible » à chaque commande | `resolveStorageRoot()` : on tente le chemin du téléviseur, sinon **repli** sur un répertoire temporaire (`iptv-webos-<app id>`), journalisé au démarrage. L'enregistrement auprès du bus, lui, n'en dépend jamais — un service qui ne s'enregistre pas est précisément le défaut « Service does not exist » |
+
+La page de diagnostic affiche désormais si elle tourne **sur un simulateur** (agent) et, dans le cas
+« Service does not exist », la bannière rappelle la procédure du simulateur en plus de celle de la TV.
+
+**Vérification** : `npm test` → **161 tests, 0 échec** (Node 20 et Node 8.12), dont quatre nouveaux :
+structure du pack simulateur (racine d'application avec `appinfo.json` et son `main`, racine de
+service avec `package.json`/`services.json` cohérents, mode d'emploi citant les deux menus) et repli
+du répertoire de travail. Validation du pipeline complet sur le portail réel rejouée hors TV :
+connexion, 59/60/44 catégories, import de **5 299 chaînes en 1,2 s**, page de 200 objets, tranches,
+recherche, détail sans secret, `resolveStream`, puis **lecture réelle du flux** (302 → `HTTP 200
+video/mp2t`, `0x47` tous les 188 octets).
+
+**Livraison** : version **0.1.4** — `dist/0.1.4/` + `dist/0.1.4.zip` + **`dist/0.1.4-simulateur.zip`**,
+publication **`v0.1.4-phase0a`** (pré-version, identifiant `398420309`) : quatre pièces jointes —
+`com.ouagkamel.app.iptvplayer_0.1.4_all.ipk` (230 260 o, sha256 `1b7f53e3…9cbc`) pour la TV,
+`0.1.4-simulateur.zip` (255 900 o, sha256 `450dc8f2…7949`) pour le simulateur, `0.1.4.zip` (783 722 o)
+et `SHA256SUMS.txt` — toutes re-téléchargées depuis l'URL publique et comparées octet à octet.
+`tools/publish-release.js` (outil de maintenance, jeton lu hors dépôt) crée la publication, les
+pièces jointes et la mention « version remplacée » ; `docs/RELEASE-0.1.4.md` porte le texte publié.
+
 ## 2026-09-28 — Deuxième essai TV : pont LS2 absent du paquet (0.1.2)
 
 **Ce qui a été observé sur la TV** : même réponse `Service does not exist`, et dans la console de la

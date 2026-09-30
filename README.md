@@ -53,13 +53,13 @@ Installation en mode développeur :
 npm i -g @webosose/ares-cli      # outillage LG (ares-package, ares-install, ares-launch)
 npm run pack:webos               # compile le service puis écrit release/com.ouagkamel.app.iptvplayer_<version>_all.ipk
 npm run dist                     # assemble dist/<version>/ (ipk + contenu dépaqueté + sommes) et dist/<version>.zip
-ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.3_all.ipk
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.4_all.ipk
 ```
 
 **Téléchargements** : les publications du dépôt (`Releases`) portent l'`.ipk` et l'archive `dist/`
 prêts à installer — dernière en date :
-[`v0.1.3-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.3-phase0a) (paquet de
-diagnostic, phase 0A, **corrigé** — voir `docs/JOURNAL.md`, D-09, D-17 à D-20).
+[`v0.1.4-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.4-phase0a) (paquet de
+diagnostic, phase 0A, **corrigé** — voir `docs/JOURNAL.md`, D-09, D-17 à D-21 ; pack simulateur inclus).
 
 `npm run dist` produit la **livraison téléchargeable** : `dist/<version>/` contient l'`.ipk`, le
 contenu du paquet dépaqueté, `SHA256SUMS.txt` et un `LISEZ-MOI.txt` ; `dist/<version>.zip` est

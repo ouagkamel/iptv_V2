@@ -91,6 +91,37 @@ versionné (l'`.ipk` est un artefact de build, jamais committé).
 | 7 | **Diagnostic du service** à nouveau | `indexes[0].entryCount` = nombre de chaînes du portail, `jobs[]` sans secret |
 | 8 | **Supprimer le profil** | `deleted: true`, `masterKeyRemoved: true`, puis « Page » répond `catalog/indexMissing` |
 
+### Simulateur webOS (banc d'essai hors téléviseur)
+
+Le simulateur **n'installe pas** de `.ipk` : il lance une application depuis un **dossier** et il
+n'accepte un service que s'il est **ajouté explicitement**. Un service présent uniquement dans un
+`.ipk` n'y est donc jamais enregistré, et tout appel se termine par `Service does not exist` — même
+quand l'application, elle, tourne. C'est le piège à connaître avant de chercher un défaut de paquet.
+
+```bash
+npm run stage:simulator        # assemble release/simulator/{app,service,LISEZ-MOI-SIMULATEUR.txt}
+# ou, depuis une livraison : extraire <version>-simulateur.zip dans un dossier personnel
+unzip 0.1.4-simulateur.zip -d ~/iptv-simulateur
+```
+
+Dans le simulateur, dans cet ordre :
+
+| Étape | Menu | Cible |
+|---|---|---|
+| 1 | **File > Add Service** | `~/iptv-simulateur/service/com.ouagkamel.app.iptvplayer.service` (racine = dossier contenant `package.json`) |
+| 2 | **Tools > Service List** | cliquer sur le service pour le **démarrer** |
+| 3 | **File > Launch App** | `~/iptv-simulateur/app` (ou `ares-launch -s <version> ~/iptv-simulateur/app`) |
+| 4 | dans la page | « Témoin du bus LS2 » → le pont répond ; « Diagnostic du service » → `runtime.node`, `roots`, `indexes` |
+
+Le dossier du service doit être **sous le répertoire de l'utilisateur** (exigence du simulateur) :
+c'est pourquoi le pack s'extrait dans `~`, jamais dans `/tmp`.
+
+**Ce que le simulateur ne prouve pas** : les permissions ACG réelles, le chemin de stockage privé du
+service (`/media/internal/…` — le service se rabat alors sur un répertoire temporaire, ce qui est
+journalisé), le pipeline média du téléviseur et les performances réelles. Ces points restent à
+mesurer **sur la TV** (§12) ; le simulateur sert à valider le protocole, l'index, l'import et
+l'enchaînement des écrans.
+
 **Contrôle hors TV, avant de monter sur la TV** (mêmes commandes que l'application, service
 embarqué) :
 

@@ -113,7 +113,10 @@ function environnement() {
     bridgeBasNiveau: typeof window.PalmServiceBridge === 'function',
     palmSystem: !!(window.PalmSystem || window.palmSystem),
     service: SERVICE,
-    versionPage: '0.1.3'
+    // le simulateur webOS n'enregistre pas les services déclarés par un .ipk : il faut les ajouter
+    // à la main (File > Add Service). Le reconnaître évite de chercher un défaut côté paquet.
+    simulateur: /simulator|emulator/i.test(navigator.userAgent),
+    versionPage: '0.1.4'
   };
 }
 
@@ -125,7 +128,8 @@ function afficherEnvironnement(details) {
     '<b>PalmSystem</b> : ' + (env.palmSystem ? 'présent' : 'absent'),
     '<b>service appelé</b> : ' + env.service,
     '<b>page</b> : ' + env.adresse,
-    '<b>agent</b> : ' + env.agent
+    '<b>agent</b> : ' + env.agent +
+      (env.simulateur ? ' <b>(simulateur)</b> — le service doit y être ajouté à la main (File &gt; Add Service)' : '')
   ];
   if (details) lignes.push('<b>appareil</b> : ' + details);
   zone.innerHTML = lignes.join('<br>');
@@ -177,7 +181,11 @@ function controleInitial() {
             '<code>ares-install -d tv com.ouagkamel.app.iptvplayer_0.1.2_all.ipk</code>.',
             'Démarrer le service explicitement et lire son journal : ' +
             '<code>ares-inspect -d tv -s com.ouagkamel.app.iptvplayer.service -o</code> — s’il démarre, ' +
-            'la console du service s’ouvre ; sinon le message d’erreur indique pourquoi.'
+            'la console du service s’ouvre ; sinon le message d’erreur indique pourquoi.',
+            '<b>Sur le simulateur webOS</b> : un <code>.ipk</code> n’y enregistre <b>jamais</b> le service. ' +
+            'Ajoutez-le à la main — <i>File &gt; Add Service</i> → dossier <code>service/com.ouagkamel.app.iptvplayer.service</code> ' +
+            'du pack simulateur (il doit être sous votre dossier personnel) — puis démarrez-le dans ' +
+            '<i>Tools &gt; Service List</i>, et lancez l’application depuis son dossier (<i>File &gt; Launch App</i>).'
           ]
         );
       } else {

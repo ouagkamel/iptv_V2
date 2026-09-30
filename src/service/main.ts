@@ -15,6 +15,9 @@
  * privé à la demande (§2.4, §15.5).
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { AppError } from '../contracts/errors';
 import { Db8Client, type Ls2Caller } from './db8/client';
 import { HttpClient } from './http/httpClient';
@@ -60,6 +63,25 @@ export function createLs2Caller(service: WebosServiceLike): Ls2Caller {
     });
 }
 
+/**
+ * Répertoire de travail du service : `/media/internal/...` sur le téléviseur (§2.4), et un repli
+ * explicite si ce chemin n'est pas inscriptible — cas du **simulateur** et du poste de développement,
+ * où `/media/internal` n'existe pas. Sans ce repli, l'import et l'index échouent avec « répertoire
+ * indisponible » alors que le service, lui, répond : le diagnostic doit distinguer les deux.
+ */
+export function resolveStorageRoot(preferred?: string): { storageRoot: string; repli: boolean } {
+  const candidat = preferred && preferred !== '' ? preferred : DEFAULT_STORAGE_ROOT;
+  try {
+    mkdirRecursive(candidat);
+    if (fs.existsSync(candidat)) return { storageRoot: candidat, repli: false };
+  } catch (_error) {
+    // chemin absent et non créable (simulateur, poste de développement) : repli ci-dessous
+  }
+  const secours = path.join(os.tmpdir(), 'iptv-webos-' + APP_ID);
+  mkdirRecursive(secours);
+  return { storageRoot: secours, repli: true };
+}
+
 /** Construit le service complet à partir d'une instance LS2 déjà créée (testable sans TV). */
 export function createService(service: WebosServiceLike, options?: { storageRoot?: string }): IptvService {
   const call = createLs2Caller(service);
@@ -68,22 +90,23 @@ export function createService(service: WebosServiceLike, options?: { storageRoot
   return new IptvService({
     db: db,
     http: http,
-    storageRoot: options && options.storageRoot ? options.storageRoot : DEFAULT_STORAGE_ROOT,
+    storageRoot: (options && options.storageRoot) || DEFAULT_STORAGE_ROOT,
     onLog: log
   });
 }
 
 /** Démarrage : enregistre les commandes *avant* toute autre chose, puis fait l'entretien. */
 export function start(service: WebosServiceLike, options?: { storageRoot?: string }): IptvService {
-  const iptv = createService(service, options);
+  // Le répertoire est résolu **avant** l'enregistrement, mais son échec éventuel ne l'empêche jamais :
+  // un service qui ne s'enregistre pas est un service que le hub ne connaît pas (« Service does not
+  // exist »), alors qu'un service qui répond « répertoire indisponible » reste diagnosticable.
+  const stockage = resolveStorageRoot(options && options.storageRoot);
+  if (stockage.repli) {
+    log('repertoire ' + DEFAULT_STORAGE_ROOT + ' indisponible : repli sur ' + stockage.storageRoot);
+  }
+  const iptv = createService(service, { storageRoot: stockage.storageRoot });
   iptv.register(createBusForService(service));
   log('service demarre : ' + SERVICE_NAME + ' (node ' + process.version + ')');
-
-  try {
-    mkdirRecursive(options && options.storageRoot ? options.storageRoot : DEFAULT_STORAGE_ROOT);
-  } catch (error) {
-    log('repertoire prive indisponible : ' + describe(error));
-  }
 
   // Entretien best-effort : l'usage normal n'attend pas le résultat.
   iptv
