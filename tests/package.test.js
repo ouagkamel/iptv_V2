@@ -19,6 +19,7 @@ var path = require('path');
 var vm = require('vm');
 var outilDist = require('../tools/make-dist');
 var outilSimulateur = require('../tools/stage-simulator');
+var formatLib = require('../src/app/format');
 var mainLib = require(path.join(
   __dirname,
   '..',
@@ -413,5 +414,57 @@ harness.describe('Répertoire de travail du service : repli hors téléviseur', 
     assert.equal(choisi.repli, true, 'repli signale');
     assert.equal(choisi.storageRoot.indexOf('iptv-webos-') !== -1, true, 'repli sous le repertoire temporaire : ' + choisi.storageRoot);
     assert.equal(fs.existsSync(choisi.storageRoot), true, 'repertoire de repli utilisable');
+  });
+});
+
+/**
+ * Régression (simulateur, 0.1.4) : dès qu'une commande échouait, la page affichait
+ * `[object Object]` — l'enveloppe du service (`{returnValue:false, error:{code,message}}`) n'était
+ * pas reconnue, seulement les erreurs du bus (`errorText`). Les deux formes doivent donner un texte
+ * exploitable, sous peine de rendre tout diagnostic à distance impossible.
+ */
+harness.describe('Affichage des erreurs LS2 : jamais [object Object]', function () {
+  harness.it('enveloppe du service : code, message et indication', function () {
+    var reponse = {
+      returnValue: false,
+      error: { code: 'profile/invalid', message: 'profil inconnu', retryable: false, hint: 'creer le profil' }
+    };
+    var texte = formatLib.texteErreur(reponse);
+    assert.equal(texte, 'profile/invalid — profil inconnu (creer le profil)', 'code, message et indication');
+    assert.equal(texte.indexOf('[object'), -1, 'aucune forme objet apparente');
+  });
+
+  harness.it('erreur du bus : message brut conserve avec son code', function () {
+    var texte = formatLib.texteErreur({
+      returnValue: false,
+      errorCode: -1,
+      errorText: 'Service does not exist: com.ouagkamel.app.iptvplayer.service.'
+    });
+    assert.equal(
+      texte,
+      'Service does not exist: com.ouagkamel.app.iptvplayer.service. (code -1)',
+      'message du bus et code'
+    );
+  });
+
+  harness.it('erreur reessayable, chaine, Error et objet inattendu', function () {
+    assert.equal(
+      formatLib.texteErreur({ returnValue: false, error: { code: 'catalog/busy', message: 'operation en cours', retryable: true } }),
+      'catalog/busy — operation en cours [reessayable]',
+      'mention de reprise'
+    );
+    assert.equal(formatLib.texteErreur('echec brut'), 'echec brut', 'chaine telle quelle');
+    assert.equal(formatLib.texteErreur(new Error('boum')), 'boum', 'Error JavaScript');
+    assert.equal(formatLib.texteErreur(null), 'erreur inconnue (reponse vide)', 'valeur absente');
+    assert.equal(formatLib.texteErreur({ inattendu: 1 }), '{"inattendu":1}', 'forme inattendue montree, pas masquee');
+  });
+
+  harness.it('une reponse valide est presentee avec statut, version et donnees', function () {
+    var texte = formatLib.texteReponse({ returnValue: true, indexVersion: 3, data: { jobId: 'xtream:p1:live:1' } });
+    assert.ok(texte.indexOf('returnValue : true') !== -1, 'statut');
+    assert.ok(texte.indexOf('indexVersion : 3') !== -1, 'version d index');
+    assert.ok(texte.indexOf('"jobId": "xtream:p1:live:1"') !== -1, 'charge utile en JSON');
+    var echec = formatLib.texteReponse({ returnValue: false, error: { code: 'auth/invalidCredentials', message: 'identifiants refuses' } });
+    assert.ok(echec.indexOf('auth/invalidCredentials — identifiants refuses') !== -1, 'erreur mise en texte');
   });
 });

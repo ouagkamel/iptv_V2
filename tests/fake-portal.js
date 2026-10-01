@@ -47,7 +47,12 @@ function createPortal(options) {
     /** tronque la reponse pour simuler une reponse incomplete (analyse refusee) */
     truncate: options.truncate === true,
     /** coupe la connexion apres N morceaux : erreur reseau en plein import */
-    abortAfterChunks: options.abortAfterChunks || null
+    abortAfterChunks: options.abortAfterChunks || null,
+    /**
+     * Reglages du compte renvoye par `player_api.php` :
+     * `{ status: 'Expired', expireInDays: -1 }` ou `{ auth: 0 }` simulent un compte inutilisable.
+     */
+    account: options.account || null
   };
   var calls = [];
   var failuresUsed = 0;
@@ -161,12 +166,16 @@ function createPortal(options) {
   }
 
   function accountInfo() {
+    // `account: { status: 'Expired', expireInDays: -1 }` simule un compte inactif : c'est ce que
+    // renvoient les portails réels, et cela doit être **dit** au lieu de produire une cascade
+    // d'erreurs réseau.
+    var reglages = config.account || {};
     return {
       user_info: {
         username: config.username,
-        auth: 1,
-        status: 'Active',
-        exp_date: String(Math.floor(Date.now() / 1000) + 30 * 24 * 3600),
+        auth: reglages.auth === undefined ? 1 : reglages.auth,
+        status: reglages.status || 'Active',
+        exp_date: String(Math.floor(Date.now() / 1000) + 3600 * 24 * (reglages.expireInDays === undefined ? 30 : reglages.expireInDays)),
         is_trial: '0',
         active_cons: '1',
         created_at: '1600000000',

@@ -629,3 +629,126 @@ harness.describe('Controle de surete des reponses (§15.4) : secrets, pas donnee
     assert.ok(refused, 'controle de surete declenche');
   });
 });
+
+/**
+ * Aucune commande LS2 ne crée de profil : `importPlaylist` porte `kind` et `source.url`, il doit donc
+ * **créer le profil au premier import**. Sans cela, un appareil neuf — simulateur, ou téléviseur
+ * après effacement — répondait « profil inconnu » à la première tentative d'import (constaté en 0A).
+ */
+harness.describe('Premier import sur un appareil neuf : le profil est cree', function () {
+  harness.it('importPlaylist cree le profil absent et poursuit l import', function () {
+    var stack = makeStack();
+    return stack.service.profiles
+      .list()
+      .then(function (avant) {
+        assert.equal(avant.length, 0, 'aucun profil au depart');
+        return importContent(stack, { contentType: 'live' });
+      })
+      .then(function (initial) {
+        assert.equal(initial.returnValue, true, 'import accepte');
+        assert.equal(initial.data.profilCree, true, 'creation signalee a l appelant');
+        return stack.service.profiles.list();
+      })
+      .then(function (apres) {
+        assert.equal(apres.length, 1, 'profil cree');
+        assert.equal(apres[0].id, 'p1', 'identifiant demande');
+        assert.equal(apres[0].baseUrl.indexOf(PORTAL_URL) === 0, true, 'adresse du portail retenue');
+        assert.equal(apres[0].name, 'portal.example.com', 'nom deduit du nom d hote, sans identifiants');
+        assert.equal(apres[0].persistSecrets, false, 'identifiants non memorises sans consentement');
+        // second import : le profil existe, aucune creation signalee
+        return importContent(stack, { contentType: 'live', credentials: credentials(stack) });
+      })
+      .then(function (second) {
+        assert.equal(second.data.profilCree, false, 'profil deja present : pas de nouvelle creation');
+      });
+  });
+
+  harness.it('sans adresse de portail, l import reste refuse clairement', function () {
+    var stack = makeStack();
+    return stack.bus
+      .invoke('importPlaylist', {
+        profileId: 'p9',
+        kind: 'xtream',
+        contentType: 'live',
+        source: { credentials: { username: USERNAME, password: PASSWORD } },
+        consent: { persistSecrets: false }
+      })
+      .then(function (replies) {
+        assert.equal(replies[0].returnValue, false, 'refus');
+        assert.equal(replies[0].error.code, 'profile/invalid', 'code normalise');
+        assert.ok(replies[0].error.message.indexOf('adresse de portail') !== -1, 'message explicite');
+      });
+  });
+
+  harness.it('diagnostics annonce l etat de DB8 sans echouer', function () {
+    var stack = makeStack();
+    return addProfile(stack)
+      .then(function () {
+        return stack.bus.invoke('diagnostics', {});
+      })
+      .then(function (replies) {
+        assert.equal(replies[0].returnValue, true, 'diagnostic servi');
+        assert.equal(replies[0].data.db.ok, true, 'base accessible signalee');
+        assert.equal(replies[0].data.db.profiles, 1, 'nombre de profils');
+      });
+  });
+});
+
+/**
+ * Un compte inactif ou expiré doit être **dit** avant l'import : sans contrôle préalable, chaque
+ * appel fournisseur échoue et l'erreur affichée parle de réseau — fausse piste constatée en 0A avec
+ * un abonnement de test arrivé à échéance.
+ */
+harness.describe('Import refuse proprement sur un compte inutilisable (auth/*)', function () {
+  harness.it('compte expire : import refuse avec auth/expired, aucun job lance', function () {
+    var stack = makeStack({ account: { status: 'Expired', expireInDays: -2 } });
+    return addProfile(stack)
+      .then(function () {
+        return stack.bus.invoke('importPlaylist', {
+          profileId: 'p1',
+          kind: 'xtream',
+          contentType: 'live',
+          source: { url: PORTAL_URL, credentials: credentials(stack) },
+          consent: { persistSecrets: false }
+        });
+      })
+      .then(function (replies) {
+        assert.equal(replies[0].returnValue, false, 'import refuse');
+        assert.equal(replies[0].error.code, 'auth/expired', 'code normalise');
+        assert.ok(replies[0].error.message.indexOf('expire') !== -1 || replies[0].error.message.indexOf('inactif') !== -1, 'cause dite : ' + replies[0].error.message);
+        return stack.bus.invoke('getImportJob', { jobId: 'xtream:p1:live:1' });
+      })
+      .then(function (replies) {
+        assert.equal(replies[0].returnValue, false, 'aucun job enregistre');
+      });
+  });
+
+  harness.it('identifiants refuses : import refuse avec auth/invalidCredentials', function () {
+    var stack = makeStack({ account: { auth: 0 } });
+    return addProfile(stack)
+      .then(function () {
+        return stack.bus.invoke('importPlaylist', {
+          profileId: 'p1',
+          kind: 'xtream',
+          contentType: 'live',
+          source: { url: PORTAL_URL, credentials: credentials(stack) },
+          consent: { persistSecrets: false }
+        });
+      })
+      .then(function (replies) {
+        assert.equal(replies[0].returnValue, false, 'import refuse');
+        assert.equal(replies[0].error.code, 'auth/invalidCredentials', 'code normalise');
+      });
+  });
+
+  harness.it('compte actif : l import reste accepte', function () {
+    var stack = makeStack();
+    return addProfile(stack)
+      .then(function () {
+        return importContent(stack, { contentType: 'live' });
+      })
+      .then(function (initial) {
+        assert.equal(initial.returnValue, true, 'import accepte');
+      });
+  });
+});

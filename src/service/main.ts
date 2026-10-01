@@ -55,12 +55,27 @@ export function createLs2Caller(service: WebosServiceLike): Ls2Caller {
       service.call(uri, params, (message) => {
         if (!message || message.returnValue === false) {
           const code = message && message.errorCode !== undefined ? String(message.errorCode) : 'inconnu';
-          reject(new AppError('internal/unexpected', 'appel LS2 refuse (' + code + ')'));
+          // Le message brut du bus est conservé : sans lui, un échec de base (DB8 absent, ACG
+          // refusée) se traduisait par un simple « appel LS2 refuse (-1) », inexploitable à distance.
+          const brut = message && message.errorText ? sanitize(String(message.errorText)) : '';
+          reject(
+            new AppError(
+              'internal/unexpected',
+              'appel LS2 refuse (' + code + ')' + (brut ? ' : ' + brut : ''),
+              uri.replace(/\/\/[^/]+/, '//' + hostLabel(uri))
+            )
+          );
           return;
         }
         resolve(message);
       });
     });
+}
+
+/** Étiquette d'URI pour un message d'erreur : `luna://<service>/<commande>`, sans identifiant. */
+function hostLabel(uri: string): string {
+  const correspondance = /^luna:\/\/([^/]+)\/(.+)$/.exec(uri);
+  return correspondance ? correspondance[1] + '/' + correspondance[2] : 'service';
 }
 
 /**

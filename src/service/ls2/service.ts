@@ -12,7 +12,7 @@
  */
 
 import * as crypto from 'crypto';
-import { AppError } from '../../contracts/errors';
+import { AppError, type ErrorCode } from '../../contracts/errors';
 import type {
   CatalogDetailRecord,
   ContentType,
@@ -296,10 +296,33 @@ export class IptvService {
     const consent = (payload.consent || {}) as Record<string, unknown>;
     const groups = Array.isArray(payload.groups) ? (payload.groups as unknown[]).map(String) : undefined;
 
-    const profile = await this.profiles.get(profileId);
-    if (!profile) throw new AppError('profile/invalid', 'profil inconnu');
+    const baseUrlFournie = asString(source.url);
+    let profile = await this.profiles.get(profileId);
+    // Aucune commande LS2 ne crée de profil : `importPlaylist` porte tout ce qu'il faut
+    // (`kind`, `source.url`) et **crée donc le profil au premier import**, au lieu de le refuser.
+    // Sans cela, un appareil neuf ne peut jamais importer : le premier appel répondrait
+    // « profil inconnu » (constaté sur le simulateur).
+    let profilCree = false;
+    if (!profile) {
+      if (!baseUrlFournie) {
+        throw new AppError('profile/invalid', 'adresse de portail manquante', 'preciser source.url au premier import');
+      }
+      profile = {
+        id: profileId,
+        name: nameFromUrl(baseUrlFournie),
+        kind: 'xtream',
+        providerType: 'xtream',
+        preferredLiveFormat: 'auto',
+        status: 'ok',
+        baseUrl: baseUrlFournie,
+        lanAllowed: payload.lanAllowed === true,
+        persistSecrets: false
+      };
+      await this.profiles.save(profile);
+      profilCree = true;
+    }
     const sessionSecrets = this.sessionSecrets[profileId] || { acceptedHosts: [] };
-    const baseUrl = asString(source.url) || profile.baseUrl;
+    const baseUrl = baseUrlFournie || profile.baseUrl;
     if (!baseUrl) throw new AppError('profile/invalid', 'adresse de portail manquante');
 
     const persistSecrets = consent.persistSecrets === true;
@@ -320,6 +343,28 @@ export class IptvService {
     }
     const busy = this.busyProfiles[profileId];
     if (busy) throw new AppError('catalog/busy', 'une operation est deja en cours pour ce profil', 'attendre ou annuler l operation en cours');
+
+    // Contrôle préalable : un compte inactif, expiré ou refusé doit être **dit** tout de suite.
+    // Sans lui, chaque appel fournisseur échoue et l'erreur affichée parle de réseau, ce qui envoie
+    // l'utilisateur sur une fausse piste (constaté en phase 0A avec un abonnement de test expiré).
+    const provider = this.providerFor(
+      {
+        id: profileId,
+        baseUrl,
+        lanAllowed: profile.lanAllowed,
+        preferredLiveFormat: profile.preferredLiveFormat,
+        userAgent: profile.userAgent
+      },
+      { username, password, acceptedHosts: await this.acceptedHostsFor(profileId) }
+    );
+    const verdict = await provider.testConnection();
+    const refus = (verdict.errors || []).filter(
+      (erreur) => erreur.retryable === false && erreur.code.indexOf('auth/') === 0
+    );
+    if (refus.length > 0) {
+      const code: ErrorCode = refus[0].code === 'auth/invalidCredentials' ? 'auth/invalidCredentials' : 'auth/expired';
+      throw new AppError(code, refus[0].message, 'verifier l abonnement et les identifiants avant de relancer l import');
+    }
 
     const masterKey = await this.masterKeys.ensure(profileId);
     // Un job = **une** construction d'index = **un** type de contenu : la machine d'état §15.5 fait
@@ -349,17 +394,6 @@ export class IptvService {
       this.subscribers[profileId] = { profileId, respond, startedAt: this.now() };
     }
 
-    const provider = this.providerFor(
-      {
-        id: profileId,
-        baseUrl,
-        lanAllowed: profile.lanAllowed,
-        preferredLiveFormat: profile.preferredLiveFormat,
-        userAgent: profile.userAgent
-      },
-      { username, password, acceptedHosts: await this.acceptedHostsFor(profileId) }
-    );
-
     // La suite s'exécute en tâche de fond : la réponse initiale porte le `jobId`, la progression
     // passe par l'abonnement (§15.4).
     void this.runOneImport({
@@ -374,7 +408,10 @@ export class IptvService {
       preferredLiveFormat: profile.preferredLiveFormat
     });
 
-    return ls2Ok({ jobId: job.jobId, contentType, indexVersion, subscribed: subscribed }, indexVersion);
+    return ls2Ok(
+      { jobId: job.jobId, contentType, indexVersion, subscribed: subscribed, profilCree: profilCree },
+      indexVersion
+    );
   }
 
   /** Exécute un import (un type de contenu, un index) et publie progression puis état final. */
@@ -639,7 +676,16 @@ export class IptvService {
   /** Diagnostic **local** : jamais de secret, jamais d'URL, export manuel uniquement (§9.2, §11.1). */
   private async diagnostics(payload: Record<string, unknown>): Promise<unknown> {
     const runtime = describeRuntime();
-    const profiles = await this.profiles.list();
+    // Sonde DB8 : sur un appareil où la base n'est pas accessible (simulateur, ACG non accordées),
+    // le service doit le **dire** au lieu d'échouer globalement — c'est ce que la page affiche.
+    let db: Record<string, unknown> = { ok: true };
+    let profiles: Profile[] = [];
+    try {
+      profiles = await this.profiles.list();
+      db = { ok: true, profiles: profiles.length };
+    } catch (error) {
+      db = { ok: false, erreur: describe(error) };
+    }
     const indexes: Array<Record<string, unknown>> = [];
     for (const profile of profiles) {
       for (const contentType of ['live', 'vod', 'series'] as ContentType[]) {
@@ -657,7 +703,13 @@ export class IptvService {
         });
       }
     }
-    const jobs = (await this.importJobsSummary()).map((job) => ({
+    let jobsResume: ImportJob[] = [];
+    try {
+      jobsResume = await this.importJobsSummary();
+    } catch (error) {
+      db = Object.assign({}, db, { jobs: 'indisponibles : ' + describe(error) });
+    }
+    const jobs = jobsResume.map((job) => ({
       jobId: job.jobId,
       profileId: job.profileId,
       sourceType: job.sourceType,
@@ -688,6 +740,7 @@ export class IptvService {
     }
     return ls2Ok({
       app: { service: SERVICE_NAME, storageRoot: this.storageRoot },
+      db: db,
       runtime,
       tls,
       roots,
@@ -879,6 +932,18 @@ function resumeEntryFor(job: ImportJob, contentType: XtreamContentType): number 
 
 function readerKey(profileId: string, contentType: ContentType): string {
   return profileId + '|' + contentType;
+}
+
+/** Nom lisible d'un profil créé à l'import : le nom d'hôte du portail, jamais l'URL complète. */
+function nameFromUrl(url: string): string {
+  return hostOf(url) || 'Portail';
+}
+
+/** Message d'erreur utilisable dans une réponse LS2 : code si typé, message sinon. */
+function describe(error: unknown): string {
+  if (error instanceof AppError) return error.message;
+  if (error instanceof Error) return error.message;
+  return 'erreur inconnue';
 }
 
 function requireString(value: unknown, field: string): string {

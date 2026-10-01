@@ -41,15 +41,44 @@ function assainir(valeur) {
     .replace(/([?&](?:username|password|token|user|pass)=)[^&\s"']*/gi, '$1***');
 }
 
+function format() {
+  return window.iptvFormat || { texteErreur: String, texteReponse: function (v) { return String(v); } };
+}
+
+/**
+ * Affichage d'une réponse. Le verdict est lu **aussi** dans `data.ok` : `testProfile` répond
+ * `returnValue: true` avec un verdict métier dans `data` (compte expiré, identifiants refusés…).
+ * Sans cela, la ligne du journal restait verte alors que le compte était inutilisable.
+ */
 function afficher(titre, charge) {
   var texte = assainir(charge);
   el('sortie').textContent = '// ' + titre + '\n' + texte;
-  journal(titre, charge && charge.returnValue === false ? 'ko' : 'ok');
+  var verdict = charge && charge.data && charge.data.ok;
+  var echec = (charge && charge.returnValue === false) || verdict === false;
+  var resume = '';
+  if (echec) {
+    var premiere = charge && charge.data && charge.data.errors && charge.data.errors[0];
+    resume = ' : ' + (charge.error ? format().texteErreur(charge) : premiere ? premiere.code + ' — ' + premiere.message : 'echec');
+  } else if (verdict === true) {
+    resume = ' : ok';
+  }
+  journal(titre + resume, echec ? 'ko' : 'ok');
 }
 
+/**
+ * Erreur affichée **telle quelle** : l'enveloppe du service (§15.4) porte `code`, `message` et
+ * `hint` ; le bus porte `errorText`. La page ne reformule rien, sinon un défaut devient illisible
+ * (c'est ce qui produisait « [object Object] » à l'écran).
+ */
 function afficherErreur(titre, erreur) {
-  var detail = erreur && (erreur.errorText || erreur.message) ? erreur.errorText || erreur.message : String(erreur);
-  el('sortie').textContent = '// ' + titre + '\n' + detail;
+  var detail = format().texteErreur(erreur);
+  var json = '';
+  try {
+    json = '\n\n' + assainir(erreur);
+  } catch (_erreur) {
+    json = '';
+  }
+  el('sortie').textContent = '// ' + titre + '\n' + detail + json;
   journal(titre + ' : ' + detail, 'ko');
 }
 
@@ -98,9 +127,7 @@ function appeler(commande, parametres, options) {
 
 /** Message brut d'une réponse ou d'une erreur LS2, sans reformulation. */
 function texteBrut(valeur) {
-  if (!valeur) return String(valeur);
-  if (typeof valeur === 'string') return valeur;
-  return valeur.errorText || valeur.message || JSON.stringify(valeur);
+  return format().texteErreur(valeur);
 }
 
 /** L'environnement réel de la page : c'est ce tableau qui dit s'il manque un pont ou un fichier. */
@@ -116,7 +143,7 @@ function environnement() {
     // le simulateur webOS n'enregistre pas les services déclarés par un .ipk : il faut les ajouter
     // à la main (File > Add Service). Le reconnaître évite de chercher un défaut côté paquet.
     simulateur: /simulator|emulator/i.test(navigator.userAgent),
-    versionPage: '0.1.4'
+    versionPage: '0.1.5'
   };
 }
 
@@ -161,6 +188,20 @@ function controleInitial() {
     .then(function (reponse) {
       masquerBanniere();
       afficher('diagnostics (contrôle initial)', reponse);
+      var db = reponse && reponse.data && reponse.data.db;
+      if (db && db.ok === false) {
+        banniere(
+          'Base locale (DB8) inaccessible',
+          'Le service répond, mais la base DB8 ne l’est pas : <code>' + db.erreur + '</code>. Sans elle, ' +
+          'les profils, les favoris et l’état des imports ne peuvent pas être enregistrés.',
+          [
+            'Sur simulateur : DB8 fait partie de l’image système ; redémarrer le simulateur, puis ' +
+            'relancer l’application.',
+            'Sur téléviseur : relever dans les journaux LS2 le nom d’ACG refusée et le consigner dans ' +
+            'docs/PHASE-0.md §0A.'
+          ]
+        );
+      }
       return true;
     })
     .catch(function (erreur) {

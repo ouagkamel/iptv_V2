@@ -1,6 +1,6 @@
 {
   "id": "com.ouagkamel.app.iptvplayer",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "vendor": "ouagkamel",
   "type": "web",
   "main": "index.html",

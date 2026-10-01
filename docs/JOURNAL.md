@@ -1,5 +1,38 @@
 # Journal d'exécution
 
+## 2026-10-01 — Simulateur : le service répond, deux défauts de plus (0.1.5)
+
+**Ce qui a été observé** : la page parle enfin au service (plus de « Service does not exist »), mais
+au premier import elle affiche `[object Object]` et rien n'aboutit. Le compte de test utilisé pour la
+validation est, lui, arrivé à échéance (le portail répond `status: Expired` puis **HTTP 451** à tous
+les appels) : la validation sur portail réel devra être rejouée avec un abonnement à jour.
+
+**Défauts trouvés et corrigés** :
+
+| Réf. | Défaut | Cause réelle | Correctif |
+|---|---|---|---|
+| **D-23** | Le premier import échoue toujours sur un appareil neuf (« profil inconnu ») | **Aucune commande LS2 ne crée de profil** : `importPlaylist` exigeait un profil enregistré, que rien ne pouvait créer — le simulateur comme un téléviseur après effacement ne pouvaient donc jamais importer | `importPlaylist` **crée le profil au premier import** (`kind`, `source.url` sont déjà dans sa charge utile), répond `profilCree: true`, et refuse avec un message explicite si aucune adresse n'est fournie ; test dédié (création, puis second import sans nouvelle création) |
+| **D-24** | `[object Object]` à l'écran dès qu'une commande échoue | La page ne connaissait que les erreurs **du bus** (`errorText`) et pas l'enveloppe **du service** (§15.4 : `error.code`/`error.message`) ; elle affichait aussi « ok » en vert alors que `testProfile` renvoyait `data.ok: false` (compte expiré) | nouveau `src/app/format.js` (testable, partagé) : `code — message (indication) [réessayable]`, message brut du bus conservé, JSON affiché en complément ; la ligne du journal suit désormais le **verdict métier** (`data.ok`) et affiche le premier code d'erreur |
+| **D-25** | Compte expiré : l'utilisateur voyait une cascade d'erreurs réseau | L'import ne vérifiait pas l'état du compte avant de lancer les appels fournisseur ; chaque appel échouait et le message parlait de réseau | **contrôle préalable** dans `importPlaylist` : un refus non réessayable de type `auth/*` interrompt l'import avec `auth/expired` ou `auth/invalidCredentials` et l'indication de vérifier l'abonnement ; `diagnostics` sonde DB8 (`db.ok`, nombre de profils) sans jamais échouer globalement, et la page ouvre une bannière si la base est inaccessible |
+
+**Ce que la page affiche maintenant** (mêmes boutons, mêmes commandes) :
+
+- verdict de `testProfile` : `Active` / `Expired` avec `expiresAt`, formats et limite de connexions ;
+- échec d'import : `auth/expired — portail : abonnement expire (verifier l abonnement …)`, jamais
+  `[object Object]` ;
+- `diagnostics` : `db.ok`, nombre de profils, index publiés, racines embarquées, runtime.
+
+**Livraison** : version **0.1.5** — `npm test` → **171 tests, 0 échec** (Node 20 et Node 8.12) ;
+`npm run dist` → `dist/0.1.5/`, `dist/0.1.5.zip` (757 383 o), `dist/0.1.5-simulateur.zip`
+(259 179 o) ; publication **`v0.1.5-phase0a`** (identifiant `398424098`) avec l'`.ipk` (232 806 o,
+sha256 `108bacd2…81ba`), les deux archives et `SHA256SUMS.txt` — quatre pièces jointes re-téléchargées
+et comparées octet à octet. `docs/RELEASE-0.1.5.md` porte le texte publié ; les publications 0.1.4 et
+antérieures portent leur mention « remplacée ».
+
+**État de la validation sur portail réel** : interrompue — le compte de test est arrivé à échéance
+(`Expired`, puis **HTTP 451** sur tous les appels `player_api.php`). Le pipeline reste validé par les
+tests hors ligne et par les essais précédents ; la reprise de 0C demande un abonnement à jour.
+
 ## 2026-09-30 — Simulateur webOS : pourquoi le service n'y est pas « connu » (0.1.4)
 
 **Ce qui a été observé** : l'erreur persiste (`Service does not exist:

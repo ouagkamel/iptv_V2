@@ -57,6 +57,15 @@ function journal(titre, valeur) {
   console.log('  ' + titre.padEnd(13, ' ') + ':', masque(valeur));
 }
 
+/** Message d'erreur LS2, quelle que soit sa forme (enveloppe du service ou erreur du bus). */
+function formatTexte(valeur) {
+  if (!valeur) return 'echec';
+  if (valeur.error) {
+    return valeur.error.code + ' — ' + valeur.error.message + (valeur.error.hint ? ' (' + valeur.error.hint + ')' : '');
+  }
+  return valeur.errorText || valeur.message || JSON.stringify(valeur);
+}
+
 function attendre(predicat, delaiMs) {
   var echeance = Date.now() + delaiMs;
   return new Promise(function (resolve, reject) {
@@ -146,18 +155,9 @@ var identifiants = { username: utilisateur, password: motDePasse };
 var etat = {};
 var echecs = 0;
 
-service.profiles
-  .save({
-    id: 'verif',
-    name: 'Portail de contrôle',
-    kind: 'xtream',
-    providerType: 'xtream',
-    preferredLiveFormat: 'auto',
-    status: 'ok',
-    baseUrl: baseUrl,
-    lanAllowed: false,
-    persistSecrets: false
-  })
+// Aucun profil n'est créé ici : le contrôle rejoue le cas d'un **appareil neuf** (simulateur ou
+// téléviseur après effacement), où `importPlaylist` doit créer le profil lui-même.
+Promise.resolve()
   .then(function () {
     console.log('\n1. testProfile');
     return bus
@@ -171,13 +171,13 @@ service.profiles
       })
       .then(function (reponses) {
         var reponse = reponses[0];
-        journal('resultat', reponse.returnValue === true ? 'ok' : JSON.stringify(reponse.error));
-        if (reponse.data) journal('compte', JSON.stringify(reponse.data.account || reponse.data));
-        if (reponse.data && reponse.data.warnings && reponse.data.warnings.length) {
-          journal('avertiss.', JSON.stringify(reponse.data.warnings));
-        }
-        if (reponse.returnValue !== true) echecs += 1;
-        return reponse.returnValue === true;
+        var verdict = reponse.data || {};
+        journal('appel LS2', reponse.returnValue === true ? 'servi' : formatTexte(reponse.error));
+        journal('verdict', verdict.ok === true ? 'ok' : 'echec : ' + JSON.stringify(verdict.errors || []));
+        if (verdict.account) journal('compte', JSON.stringify(verdict.account));
+        if (verdict.warnings && verdict.warnings.length) journal('avertiss.', JSON.stringify(verdict.warnings));
+        if (reponse.returnValue !== true || verdict.ok !== true) echecs += 1;
+        return reponse.returnValue === true && verdict.ok === true;
       });
   })
   .then(function (ok) {
@@ -197,7 +197,15 @@ service.profiles
         { subscribed: true }
       )
       .then(function (initiales) {
+        if (initiales[0].returnValue !== true) {
+          journal('import', 'refuse : ' + formatTexte(initiales[0].error));
+          echecs += 1;
+          throw new Error('import refuse');
+        }
         var jobId = initiales[0].data && initiales[0].data.jobId;
+        if (initiales[0].data.profilCree !== undefined) {
+          journal('profil', initiales[0].data.profilCree === true ? 'cree par cet import' : 'deja present');
+        }
         journal('jobId', jobId);
         return attendre(function () {
           return bus.log.some(function (entree) {

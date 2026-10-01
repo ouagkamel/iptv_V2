@@ -1,0 +1,73 @@
+'use strict';
+
+/**
+ * Mise en texte des réponses et des erreurs LS2 pour la page de diagnostic.
+ *
+ * Pourquoi ce fichier existe : la page affichait `[object Object]` dès qu'une commande échouait. Deux
+ * formes d'erreur coexistent en effet sur le bus :
+ *   - une erreur **du bus** : `{ returnValue: false, errorCode: -1, errorText: "Service does not exist …" }` ;
+ *   - une erreur **du service** : `{ returnValue: false, error: { code, message, retryable, hint? } }`
+ *     (l'enveloppe du §15.4) ;
+ * et une exception JavaScript côté page (`Error`). Le texte utile doit sortir dans les trois cas, avec
+ * le code et l'indication de reprise — jamais « [object Object] ».
+ *
+ * Le module est utilisable tel quel dans la page (`window.iptvFormat`) et sous Node pour les tests
+ * (`module.exports`), sans dépendance : c'est ce qui permet de le couvrir par un test.
+ */
+
+(function (racine) {
+  function estObjet(valeur) {
+    return valeur !== null && typeof valeur === 'object';
+  }
+
+  /** Texte lisible d'une erreur LS2, quelle que soit sa forme. Jamais « [object Object] ». */
+  function texteErreur(valeur) {
+    if (valeur === undefined || valeur === null) return 'erreur inconnue (reponse vide)';
+    if (typeof valeur === 'string') return valeur;
+    if (valeur instanceof Error) return valeur.message || String(valeur);
+    if (!estObjet(valeur)) return String(valeur);
+
+    // 1) enveloppe du service (§15.4) : { returnValue:false, error:{ code, message, retryable, hint } }
+    if (estObjet(valeur.error)) {
+      var detail = valeur.error;
+      var texte = (detail.code ? detail.code + ' — ' : '') + (detail.message || 'erreur sans message');
+      if (detail.hint) texte += ' (' + detail.hint + ')';
+      if (detail.retryable === true) texte += ' [reessayable]';
+      return texte;
+    }
+    // 2) erreur du bus LS2 : { errorCode, errorText }
+    if (valeur.errorText) {
+      return valeur.errorCode !== undefined && valeur.errorCode !== 0 ? valeur.errorText + ' (code ' + valeur.errorCode + ')' : String(valeur.errorText);
+    }
+    // 3) forme inattendue : on montre le contenu plutôt que l'objet
+    try {
+      return JSON.stringify(valeur);
+    } catch (_erreur) {
+      return 'erreur illisible';
+    }
+  }
+
+  /** Résumé d'une réponse du service : statut, `indexVersion`, puis charge utile en JSON. */
+  function texteReponse(reponse) {
+    if (!estObjet(reponse)) return String(reponse);
+    var lignes = [];
+    lignes.push('returnValue : ' + (reponse.returnValue === true ? 'true' : 'false'));
+    if (reponse.indexVersion !== undefined) lignes.push('indexVersion : ' + reponse.indexVersion);
+    if (reponse.returnValue === false) {
+      lignes.push('erreur : ' + texteErreur(reponse));
+    }
+    if (reponse.data !== undefined) {
+      lignes.push('data :');
+      lignes.push(JSON.stringify(reponse.data, null, 2));
+    }
+    return lignes.join('\n');
+  }
+
+  var api = { texteErreur: texteErreur, texteReponse: texteReponse };
+
+  if (racine) {
+    racine.iptvFormat = api;
+    if (typeof racine.window !== 'undefined') racine.window.iptvFormat = api;
+  }
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})(typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : this);
