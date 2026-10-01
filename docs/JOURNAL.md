@@ -24,9 +24,17 @@ les appels) : la validation sur portail réel devra être rejouée avec un abonn
 
 **Livraison** : version **0.1.5** — `npm test` → **171 tests, 0 échec** (Node 20 et Node 8.12) ;
 `npm run dist` → `dist/0.1.5/`, `dist/0.1.5.zip` (757 383 o), `dist/0.1.5-simulateur.zip`
-(259 179 o) ; publication **`v0.1.5-phase0a`** (identifiant `398424098`) avec l'`.ipk` (232 806 o,
-sha256 `108bacd2…81ba`), les deux archives et `SHA256SUMS.txt` — quatre pièces jointes re-téléchargées
-et comparées octet à octet. `docs/RELEASE-0.1.5.md` porte le texte publié ; les publications 0.1.4 et
+(259 179 o) ; publication **`v0.1.5-phase0a`** (identifiant `398424098`) avec quatre pièces jointes,
+re-téléchargées et comparées octet à octet :
+
+| Fichier | Taille | sha256 |
+|---|---|---|
+| `com.ouagkamel.app.iptvplayer_0.1.5_all.ipk` | 232 806 o | `108bacd27b9b2b8e73f89bf4bc83ce28c64d2ab9995c0afd80ec6cc1f33581ba` |
+| `0.1.5-simulateur.zip` | 259 179 o | `5cfe154d6883636b1cdba0b00b5655c1e1590165294f6e087da79208b757208e` |
+| `0.1.5.zip` | 757 383 o | `1aedf77c26acda0436193a5dd4774eea8ca9ec295b99b14cddb57253b6c00cdd` |
+| `SHA256SUMS.txt` | 11 997 o | `ebd3ba954433d63e53ac36824ef52d39b1025edc8e04d5513ee27d055e8e665d` |
+
+CI sur `490d891` : **2/2 tâches vertes** (Node 20 et Node 8.12, 171 tests). `docs/RELEASE-0.1.5.md` porte le texte publié ; les publications 0.1.4 et
 antérieures portent leur mention « remplacée ».
 
 **État de la validation sur portail réel** : interrompue — le compte de test est arrivé à échéance
