@@ -32,7 +32,7 @@ if (typeof main.bootstrap !== 'function') {
   var instance = main.bootstrap();
   console.log(
     instance
-      ? '[iptv] service enregistre aupres du hub LS2 : 11 commandes'
+      ? '[iptv] service enregistre aupres du hub LS2 : 12 commandes'
       : '[iptv] service NON enregistre : voir les lignes precedentes'
   );
 }

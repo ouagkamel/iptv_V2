@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Couche LS2 du service (§2.6, §15.4) : les onze commandes déclarées dans le manifeste, l'enveloppe
+ * Couche LS2 du service (§2.6, §15.4) : les douze commandes déclarées dans le manifeste, l'enveloppe
  * unique, la règle « aucune URL de flux hors `resolveStream` », l'unicité de l'opération lourde par
  * profil, l'annulation coopérative, la suppression de profil et le diagnostic sans secret.
  *
@@ -166,7 +166,7 @@ function jsonOf(reply) {
 /* ---------------------------------------------------------------- commandes */
 
 harness.describe('Service LS2 : commandes et enveloppe (§2.6, §15.4)', function () {
-  harness.it('les onze commandes du manifeste sont enregistrees et aucune n est publique', function () {
+  harness.it('les douze commandes du manifeste sont enregistrees et aucune n est publique', function () {
     var stack = makeStack();
     var manifest = JSON.parse(fs.readFileSync(path.join(serviceDir, 'services.json'), 'utf8'));
     var declared = manifest.services[0].commands.map(function (command) {
@@ -175,7 +175,7 @@ harness.describe('Service LS2 : commandes et enveloppe (§2.6, §15.4)', functio
     });
     var registered = Object.keys(stack.bus.handlers);
     assert.deepEqual(registered.slice().sort(), declared.slice().sort(), 'commandes enregistrees = commandes declarees');
-    assert.equal(registered.length, 11, 'onze commandes');
+    assert.equal(registered.length, 12, 'douze commandes');
     assert.equal(stack.bus.handlers.testProfile instanceof Function, true, 'gestionnaire enregistre');
   });
 
@@ -877,5 +877,53 @@ harness.describe('Echec d import : la cause reelle est transmise', function () {
         });
         assert.equal(jobs.length >= 1, true, 'job en phase failed');
       });
+  });
+});
+
+/**
+ * Panneau des catégories (Live en V1-A, VOD et Séries ensuite) : la liste vient de l'index déjà
+ * écrit (`groups.bin`), dans l'ordre fournisseur, avec le nombre d'entrées — l'UI n'a rien à
+ * recalculer et aucune requête fournisseur n'est refaite pour l'afficher.
+ */
+harness.describe('Categories du catalogue : ordre fournisseur et comptes', function () {
+  harness.it('getCategories sert la liste indexee, sans recalcul cote UI', function () {
+    var stack = makeStack();
+    return addProfile(stack)
+      .then(function () {
+        return importContent(stack, { contentType: 'live' });
+      })
+      .then(function () {
+        return stack.bus.invoke('getCategories', { profileId: 'p1', contentType: 'live' });
+      })
+      .then(function (replies) {
+        assert.equal(replies[0].returnValue, true, 'commande servie');
+        var data = replies[0].data;
+        assert.equal(Array.isArray(data.categories), true, 'liste presente');
+        assert.equal(data.categories.length > 0, true, 'au moins une categorie');
+        assert.equal(data.total, 6, 'total des entrees indexees');
+        var total = data.categories.reduce(function (somme, categorie) {
+          return somme + categorie.count;
+        }, 0);
+        assert.equal(total, data.total, 'les comptes couvrent tout le catalogue');
+        var ordres = data.categories.map(function (categorie) {
+          return categorie.sourceOrder;
+        });
+        var tries = ordres.slice().sort(function (a, b) {
+          return a - b;
+        });
+        assert.equal(ordres.join(','), tries.join(','), 'ordre fournisseur respecte');
+        assert.ok(data.categories[0].name.length > 0, 'nom de categorie present');
+        assert.equal(typeof replies[0].indexVersion, 'number', 'version d index renvoyee');
+      });
+  });
+
+  harness.it('un contenu non indexe est refuse proprement', function () {
+    var stack = makeStack();
+    return addProfile(stack).then(function () {
+      return stack.bus.invoke('getCategories', { profileId: 'p1', contentType: 'vod' });
+    }).then(function (replies) {
+      assert.equal(replies[0].returnValue, false, 'refus');
+      assert.equal(replies[0].error.code, 'catalog/indexMissing', 'code normalise');
+    });
   });
 });

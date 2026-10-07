@@ -158,11 +158,12 @@ function main() {
   }
 
   var lignes = [
-    '# Paquet de diagnostic — phase 0A',
+    '# Application IPTV — phase 0A / increment V1-A',
     '',
     'Ce dossier est la livraison du depot `iptv_V2` pour la version ' + version + ' :',
-    'le **service webOS complet** (protocole LS2, reseau, DB8, import reprenable) et une page de',
-    'diagnostic telecommandable, sans interface Enact (elle arrive a l etape 3).',
+    'le **service webOS complet** (protocole LS2, reseau, DB8, import reprenable) et',
+    'l **interface Enact** (accueil a quatre cartes, Live TV, reglages, lecteur), accompagnee de la',
+    'page de diagnostic telecommandable conservee comme poste de controle du socle.',
     '',
     '## Contenu',
     '',
@@ -180,11 +181,17 @@ function main() {
     '',
     '## Ce qui se verifie ensuite',
     '',
-    'Dans la page : Diagnostic du service (Node 8.12, OpenSSL du firmware, racines), test de source,',
-    'import live (phases jusqu a `done`), page/tranches/detail, resolution de flux, suppression de',
-    'profil. La sequence complete avec la preuve attendue a chaque etape est dans',
-    '`docs/PHASE-0.md` §0A. Le lecteur `<video>` et les ecrans de l interface ne sont pas encore',
-    'livres : ils relevent des etapes 3 et de la phase 0B.',
+    'Au lancement : l **accueil** propose les quatre cartes ; *Live TV* affiche les categories puis',
+    'les chaines ; *Reglages* pre-remplit le profil Xtream, teste la source et lance l import en',
+    'affichant ses phases ; *Films* et *Series* annoncent leur increment (V1-B, V1-C).',
+    '',
+    'La **page de diagnostic** reste joignable depuis Reglages -> « Page de diagnostic (0A) » :',
+    'Diagnostic du service (Node 8.12, OpenSSL du firmware, racines), test de source, import live',
+    '(phases jusqu a `done`), page/tranches/detail, resolution de flux, suppression de profil.',
+    'La sequence complete avec la preuve attendue a chaque etape est dans `docs/PHASE-0.md` §0A.',
+    '',
+    'Le **lecteur video** est livre au niveau V1-A (un `<video>` natif alimente par `resolveStream()`)',
+    'mais sa qualification (HLS, MPEG-TS progressif, codecs, 1080i) releve de la phase 0B.',
     ''
   ].join('\n');
   fs.writeFileSync(path.join(dossier, 'LISEZ-MOI.txt'), lignes, 'utf8');

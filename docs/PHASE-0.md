@@ -6,12 +6,13 @@ copie d'écran, réponse écrite), jamais par extrapolation.
 
 ## 0A — Socle applicatif et plateforme
 
-### Paquet de diagnostic (prêt à installer)
+### Paquet à installer (interface + page de diagnostic)
 
-Tant que l'interface Enact n'existe pas (étape 3), le dépôt fournit un **paquet de diagnostic** :
-le service complet (§15.4) plus une page web minimale qui appelle ses onze commandes à la
-télécommande. Il sert à prouver le socle sur la TV — LS2, DB8, permissions, stockage privé, TLS —
-sans attendre l'interface.
+Le paquet livré contient le service complet (§15.4), **l'interface Enact de V1-A** (accueil à quatre
+cartes, Live TV, réglages, lecteur) et la **page de diagnostic** télécommandable, qui appelle les
+douze commandes LS2 et reste joignable depuis *Réglages* → « Page de diagnostic (0A) ». La page sert
+à prouver le socle sur la TV — LS2, DB8, permissions, stockage privé, TLS — **même si l'interface
+refuse de démarrer** ; c'est elle qui porte la bannière explicative et le témoin du bus.
 
 ```bash
 npm ci                                    # outillage de développement
@@ -21,7 +22,7 @@ npm run pack:webos                        # compile le service puis produit rele
 # sur la TV : mode développeur activé (application « Developer Mode »), même compte LG que le CLI
 ares-setup-device --add tv --info "host=<IP de la TV>" --passphrase   # la TV affiche la phrase
 ares-device  --device tv --system-info                                # doit répondre : mode développeur visible
-ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.3_all.ipk
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.8_all.ipk
 ares-launch  --device tv com.ouagkamel.app.iptvplayer
 ```
 
@@ -38,7 +39,7 @@ paquet — la bannière de la page affiche alors la même séquence que ci-desso
 ```bash
 ares-install --device tv --listfull                                  # version réellement installee
 ares-install --device tv -r com.ouagkamel.app.iptvplayer             # desinstallation complete
-ares-install --device tv com.ouagkamel.app.iptvplayer_0.1.3_all.ipk  # reinstallation
+ares-install --device tv com.ouagkamel.app.iptvplayer_0.1.8_all.ipk  # reinstallation
 # redemarrer la TV : le hub relit la liste de ses services au demarrage
 ares-inspect --device tv -s com.ouagkamel.app.iptvplayer.service -o   # lance le service et ouvre sa console
 ```
@@ -51,9 +52,16 @@ ares-log --device tv --lines 400       # relire les derniers
 ```
 
 Le service écrit au minimum `[iptv] demarrage du service ... (node v8.12.x)` puis
-`[iptv] service enregistre aupres du hub LS2 : 11 commandes`. Si la **première** ligne n'apparaît
+`[iptv] service enregistre aupres du hub LS2 : 12 commandes`. Si la **première** ligne n'apparaît
 pas, le service n'a jamais été lancé (enregistrement côté plateforme) ; si elle apparaît sans la
 seconde, la cause est affichée juste après (chargement `lib/service/main.js` impossible).
+
+**Au lancement, l'interface doit afficher l'accueil à quatre cartes.** Le parcours minimal de la
+0A : *Live TV* → les catégories apparaissent (elles viennent de l'index, aucun appel fournisseur) →
+*Réglages* → « Tester la source » → « Importer (live) » → la progression va jusqu'à `terminé` avec
+le nombre d'entrées → retour à *Live TV* : les chaînes sont là → OK sur une chaîne : le lecteur
+s'ouvre (l'image et le son sont la partie 0B). Si un écran reste vide, *Réglages* → « Page de
+diagnostic (0A) » donne la réponse brute du service.
 
 Bouton **Témoin du bus LS2** de la page : il interroge un service *du système*
 (`com.webos.service.tv.systemproperty`). S'il répond, le pont de l'application fonctionne et le

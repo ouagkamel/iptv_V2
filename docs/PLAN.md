@@ -15,7 +15,7 @@ ligne n'est cochée sans preuve.
 | **0C — un fournisseur de chaque type** | Adaptateur Xtream (V1-A), import M3U (V1-D) | **oui pour Xtream** (étape 2 : `src/service/providers`, client HTTP §2.5) ; M3U reste en V1-D | **oui** : portail Xtream et playlist M3U autorisés, comptes de test dédiés |
 | **0D — gros catalogue, secrets, réseau** | Index chiffré, `ImportJob`, quotas | **oui** (étapes 1–2 : crypto, index, `ImportJob` persistant, import reprenable, bundle de racines embarqué) | **oui** : 250 k entrées / 256 Mio, RSS, pic disque, TLS par pile, racine récente |
 | **Contrôle de distribution** | Question écrite à LG Seller Lounge, self-checklist | trame de question dans `docs/PHASE-0.md` | **oui** — go/no-go bloquant, à trancher avant V1-B |
-| **V1-A** | Xtream (profil, test, consentement, erreurs normalisées), Live TV (catégories/chaînes), lecteur `resolveStream()`, diagnostic local, quatre cartes, remote/Spotlight, routeur/Retour | **service complet** (étape 2 : onze commandes LS2 §15.4, import live, `resolveStream`, diagnostic) ; interface Enact **étape 3** | mesures D-pad et p95 |
+| **V1-A** | Xtream (profil, test, consentement, erreurs normalisées), Live TV (catégories/chaînes), lecteur `resolveStream()`, diagnostic local, quatre cartes, remote/Spotlight, routeur/Retour | **oui** — service complet (douze commandes LS2 §15.4, import live, `resolveStream`, diagnostic) **et interface Enact** (`ui/`, étape 3) : quatre cartes, catégories + chaînes paginées par curseur, réglages + consentement HTTP clair, lecteur `<video>` unique, pile `Panels` + `TabLayout` | **oui** : mesures D-pad et p95 ; qualification lecteur en 0B |
 | **V1-B** | EPG, favoris, reprise, VOD (grille, fiche, recherche indexée, saut alphabétique), barre de navigation persistante | — | — |
 | **V1-C** | Séries (saisons, épisodes, recherche sur titres), états d'écran normalisés | — | — |
 | **V1-D** | M3U (identité `logicalKey`/`variantKey`), gros catalogues, import reprenable, sélection de groupes | — | — |
@@ -65,7 +65,13 @@ ligne n'est cochée sans preuve.
    fichier — la réalisation explicite des offsets que la spécification suppose.
 4. **`ImportJob` : `swapping` seule transition de version.** Implémenté tel quel ; `commit()` est
    la seule fonction qui publie une version (rename + manifeste).
-5. **Plafonds de page.** Le plafond en objets (200) se déclenche en pratique avant le plafond en
+5. **`getCategories` ajoutée au protocole (§15.4).** Le §3.2–§3.4 exige un panneau de catégories sur
+   les trois écrans, mais le tableau du §15.4 ne décrit aucune commande qui rende la liste — alors que
+   l'indexation écrit déjà `groups.bin` (`{id, name, sourceOrder, count}`). La V1-A ajoute donc
+   **`getCategories {profileId, contentType}` → `{categories[], total}`** (ordre fournisseur, comptes
+   issus de l'index, aucune requête fournisseur, aucune plage d'ordinaux exposée). Douze commandes non
+   publiques au total.
+6. **Plafonds de page.** Le plafond en objets (200) se déclenche en pratique avant le plafond en
    octets pour des entrées d'index bornées (charge courte ≤ 512 octets) ; le plafond en octets est
    testé directement sur l'accumulateur, et le service le re-vérifie avant de renvoyer une page.
 

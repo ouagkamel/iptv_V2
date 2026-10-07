@@ -145,7 +145,7 @@ function environnement() {
     // le simulateur webOS n'enregistre pas les services déclarés par un .ipk : il faut les ajouter
     // à la main (File > Add Service). Le reconnaître évite de chercher un défaut côté paquet.
     simulateur: /simulator|emulator/i.test(navigator.userAgent),
-    versionPage: '0.1.7'
+    versionPage: '0.1.8'
   };
 }
 
@@ -340,6 +340,12 @@ function appliquerSource(source) {
   el('utilisateur').value = champs.username;
   el('motdepasse').value = champs.password;
   if (champs.autoriserHttp) el('httpclair').checked = true;
+  // Le libellé de chaque champ nomme la source utilisée : on voit d'un coup d'œil que l'adresse,
+  // le profil et les identifiants appartiennent au **compte de test** et non à une saisie manuelle.
+  ['profil', 'url', 'utilisateur', 'motdepasse'].forEach(function (champ) {
+    var etiquette = el('etiquette-' + champ);
+    if (etiquette) etiquette.textContent = champs.etiquettes[champ];
+  });
   journal('source préconfigurée : ' + champs.nom);
 }
 

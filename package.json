@@ -1,6 +1,6 @@
 {
   "name": "iptv-webos-v2",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "description": "Lecteur IPTV pour LG webOS 6+ — application Empaquetée (Enact 3.4.9) + service JS (Node 8.12)",
   "license": "UNLICENSED",
@@ -16,12 +16,13 @@
     "lint:node812": "node tools/node812-compat.js",
     "check:deps": "node tools/deps-audit.js",
     "verify": "npm run lint:node812 && npm run check:deps && npm run typecheck && npm test",
-    "pack:webos": "npm run build:service && node tools/make-package.js",
+    "pack:webos": "npm run build:service && npm run build:ui && node tools/make-package.js",
     "test:service-compile": "node tests/run.js",
-    "pack:app": "node tools/make-package.js",
-    "dist": "npm run build:service && node tools/make-dist.js",
+    "pack:app": "npm run build:ui && node tools/make-package.js",
+    "dist": "npm run build:service && npm run build:ui && node tools/make-dist.js",
     "verify:portal": "node tools/verify-portal.js",
-    "stage:simulator": "node tools/stage-simulator.js"
+    "stage:simulator": "node tools/stage-simulator.js",
+    "build:ui": "node tools/build-ui.js"
   },
   "devDependencies": {
     "@types/node": "^8.10.66",

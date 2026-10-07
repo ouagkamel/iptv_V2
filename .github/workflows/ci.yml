@@ -20,6 +20,16 @@ jobs:
       - run: npm run build:service
       - run: npm test
       - run: npm run lint:node812
+      # L'interface Enact a ses propres dependances (react, @enact/*) et sa propre chaine de build :
+      # elle est construite ici pour qu'une erreur d'ecran ou de style ne passe pas la CI.
+      - name: Dependances de l interface
+        run: npm --prefix ui ci
+      - name: Construction de l interface (Enact + Sandstone)
+        run: npm run build:ui
+      - name: Le bundle de l interface est complet
+        run: |
+          test -s ui/dist/main.js
+          test -s ui/dist/main.css
       - name: Publier le service compile pour la cible Node 8.12
         uses: actions/upload-artifact@v4
         with:

@@ -10,7 +10,7 @@ Ce dépôt implémente la spécification `docs/SPEC-v1.3.md` **par incréments**
 |---|---|---|
 | Socle | contrats `§15.1`, crypto d'index `§15.3`, index/recherche `§15.2`, machines d'état `§15.5`, outillage CI | **livré (étape 1)** |
 | Service | client HTTP `§2.5`, parseur JSON incrémental, DB8 `§2.4`, adaptateur Xtream `§5.1`, import reprenable `§15.5`, protocole LS2 `§15.4`, diagnostic local | **livré (étape 2)** |
-| V1-A | Xtream (profil, test) + Live TV (catégories, chaînes) + lecteur + `resolveStream()` + diagnostic local | interface Enact en cours (étape 3) ; **service complet** |
+| V1-A | Xtream (profil, test) + Live TV (catégories, chaînes) + lecteur + `resolveStream()` + diagnostic local | **livré (étape 3)** : service complet + **interface Enact** (`ui/`) — qualification lecteur (§0B) à faire sur TV |
 | V1-B | EPG, favoris, reprise, VOD (grille, fiche, recherche indexée, saut alphabétique) | à venir |
 | V1-C | Séries (saisons, épisodes) + navigation globale persistante | à venir |
 | V1-D | M3U (second moteur, identité `logicalKey`/`variantKey`), gros catalogues, index chiffré, reprise d'import | à venir |
@@ -34,9 +34,15 @@ jour dans `docs/PLAN.md` et `docs/JOURNAL.md`.
 ## Paquetage webOS
 
 ```
-/                                  # APP_DIR  (application Enact, appinfo.json)
+/                                  # APP_DIR  (appinfo.json, index.html, ui/main.js, diagnostic.html)
 service/<id-de-service>/           # SERVICE_DIR (package.json, services.json, lib/ compilé)
+ui/                                # interface Enact : source de l'application (hors paquet livré)
 ```
+
+L'application a **deux pages** : `index.html` porte l'interface Enact (accueil à quatre cartes,
+Live TV, réglages, lecteur) et `diagnostic.html` reste la page de contrôle de la phase 0A, joignable
+depuis *Réglages* → « Page de diagnostic (0A) ». Les deux lisent `profils.js`, remplacé à
+l'empaquetage par `secrets.local/profils.js` quand il existe (sources préconfigurées, hors dépôt).
 
 ```bash
 npm ci                  # outillage de développement
@@ -44,7 +50,9 @@ npm run build           # compile le service (ES2017/Node 8.12) puis l'interface
 npm test                # tests unitaires + contrats (node, sans dépendance)
 npm run lint:node812    # interdit toute API absente de Node 8.12
 npm run check:deps      # refuse une dépendance d'exécution non justifiée
-npm run pack:webos      # produit l'.ipk (nécessite @enact/cli + ares-cli)
+npm --prefix ui ci      # dépendances de l'interface (react, @enact/*)
+npm run build:ui        # construit l'interface Enact (Enact + Sandstone) dans ui/dist
+npm run pack:webos      # produit l'.ipk (nécessite ares-cli)
 ```
 
 Installation en mode développeur :
@@ -53,23 +61,24 @@ Installation en mode développeur :
 npm i -g @webosose/ares-cli      # outillage LG (ares-package, ares-install, ares-launch)
 npm run pack:webos               # compile le service puis écrit release/com.ouagkamel.app.iptvplayer_<version>_all.ipk
 npm run dist                     # assemble dist/<version>/ (ipk + contenu dépaqueté + sommes) et dist/<version>.zip
-ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.7_all.ipk
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.8_all.ipk
 ```
 
 **Téléchargements** : les publications du dépôt (`Releases`) portent l'`.ipk` et l'archive `dist/`
 prêts à installer — dernière en date :
-[`v0.1.7-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.7-phase0a) (paquet de
-diagnostic, phase 0A, **corrigé** — voir `docs/JOURNAL.md`, D-09, D-17 à D-21 ; pack simulateur inclus).
+[`v0.1.8-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.8-phase0a) (service complet
+**et interface Enact V1-A** — accueil à quatre cartes, Live TV, réglages, lecteur ; pack simulateur et
+page de diagnostic inclus ; voir `docs/JOURNAL.md`, D-28 à D-32).
 
 `npm run dist` produit la **livraison téléchargeable** : `dist/<version>/` contient l'`.ipk`, le
 contenu du paquet dépaqueté, `SHA256SUMS.txt` et un `LISEZ-MOI.txt` ; `dist/<version>.zip` est
 l'archive prête à joindre à une publication GitHub. Les publications du dépôt portent cette archive
 et l'`.ipk` séparément.
 
-Le paquet produit contient le **service complet** et une **page de diagnostic** télécommandable
-(`src/app/`) qui appelle les onze commandes LS2 : elle permet d'exécuter la phase 0A sur la TV sans
-attendre l'interface Enact (procédure et preuves attendues dans `docs/PHASE-0.md`). L'interface
-Enact de V1-A remplacera cette page à l'étape 3 ; les tests locaux (`npm test`) n'en dépendent pas.
+Le paquet produit contient le **service complet**, l'**interface Enact de V1-A** (`ui/main.js`) et la
+**page de diagnostic** télécommandable (`diagnostic.html`), qui appelle elle aussi les douze
+commandes LS2 : elle permet d'exécuter la phase 0A sur la TV même si l'interface refuse de démarrer
+(procédure et preuves attendues dans `docs/PHASE-0.md`).
 Le détail des vérifications à faire **sur la TV** (phase 0A/0B, §12) est dans `docs/PHASE-0.md`.
 
 Avant la TV, un portail réel peut être éprouvé **hors appareil** avec le service tel qu'il sera

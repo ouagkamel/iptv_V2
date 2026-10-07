@@ -162,6 +162,7 @@ export class IptvService {
       getPage: this.handle('getPage'),
       search: this.handle('search'),
       getBuckets: this.handle('getBuckets'),
+      getCategories: this.handle('getCategories'),
       getDetails: this.handle('getDetails'),
       resolveStream: this.handle('resolveStream'),
       deleteProfile: this.handle('deleteProfile'),
@@ -215,6 +216,8 @@ export class IptvService {
         return this.search(payload);
       case 'getBuckets':
         return this.getBuckets(payload);
+      case 'getCategories':
+        return this.getCategories(payload);
       case 'getDetails':
         return this.getDetails(payload);
       case 'resolveStream':
@@ -563,6 +566,25 @@ export class IptvService {
     const contentType = requireContentType(payload.contentType);
     const reader = await this.openReader(profileId, contentType);
     return ls2Ok(reader.getBuckets(), reader.indexVersion);
+  }
+
+  /**
+   * Catégories du catalogue, dans l'ordre fournisseur, avec leur nombre d'entrées (§3.2 à §3.4).
+   *
+   * Elles proviennent de `groups.bin`, déjà écrit à l'indexation : aucune requête fournisseur n'est
+   * refaite pour afficher le panneau des catégories, et l'UI ne recalcule jamais de comptage.
+   * Les plages d'ordinaux internes (`ranges`) ne sortent pas : seule la liste affichable est servie.
+   */
+  private async getCategories(payload: Record<string, unknown>): Promise<unknown> {
+    const profileId = requireString(payload.profileId, 'profileId');
+    const contentType = requireContentType(payload.contentType);
+    const reader = await this.openReader(profileId, contentType);
+    const groupes = reader.getGroups();
+    const categories = groupes
+      .slice()
+      .sort((a, b) => a.sourceOrder - b.sourceOrder)
+      .map((groupe) => ({ id: groupe.id, name: groupe.name, count: groupe.count, sourceOrder: groupe.sourceOrder }));
+    return ls2Ok({ categories: categories, total: reader.entryCount }, reader.indexVersion);
   }
 
   private async getDetails(payload: Record<string, unknown>): Promise<unknown> {

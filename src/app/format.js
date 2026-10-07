@@ -1,5 +1,8 @@
 'use strict';
 
+/* eslint-disable no-var -- fichier ES5 volontaire : charge tel quel par la page de diagnostic, sans transpilation */
+/* global self -- `self` est la racine de navigation du navigateur et du worker (jamais `window` seul) */
+
 /**
  * Mise en texte des réponses et des erreurs LS2 pour la page de diagnostic.
  *
@@ -99,13 +102,22 @@
   function champsDepuisSource(source) {
     if (!estObjet(source)) return null;
     var url = String(source.url || '');
+    var nom = String(source.nom || url || 'source');
+    var suffixe = ' — ' + nom;
     return {
       profileId: String(source.id || ''),
       url: url,
       username: String(source.username || ''),
       password: String(source.password || ''),
       autoriserHttp: url.indexOf('http://') === 0,
-      nom: String(source.nom || url || 'source')
+      nom: nom,
+      // libellé de chaque champ, pour que la provenance soit lisible à l'écran
+      etiquettes: {
+        profil: 'Identifiant de profil' + suffixe,
+        url: 'Adresse du portail' + suffixe,
+        utilisateur: "Nom d'utilisateur" + suffixe,
+        motdepasse: 'Mot de passe' + suffixe
+      }
     };
   }
 
@@ -121,4 +133,4 @@
     if (typeof racine.window !== 'undefined') racine.window.iptvFormat = api;
   }
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : this);
+})(typeof window !== 'undefined' ? window : typeof self !== 'undefined' ? self : this);

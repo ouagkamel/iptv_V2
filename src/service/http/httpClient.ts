@@ -595,7 +595,7 @@ export function absolutize(location: string, base: ParsedUrl): string {
  * En-tête envoyé par défaut. Il identifie l'application (elle-même, pas un navigateur) : les
  * portails qui filtrent sur `User-Agent` reçoivent ainsi une valeur stable et lisible.
  */
-export const DEFAULT_USER_AGENT = 'IPTVPlayer/0.1.7 (webOS TV; +https://github.com/ouagkamel/iptv_V2)';
+export const DEFAULT_USER_AGENT = 'IPTVPlayer/0.1.8 (webOS TV; +https://github.com/ouagkamel/iptv_V2)';
 
 export function codeForStatus(status: number): ErrorCode {
   if (status === 461) return 'provider/badResponse';

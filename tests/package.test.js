@@ -55,7 +55,7 @@ harness.describe('Paquet du service : enregistrement et manifeste (§2.6, §15.4
       return command.name;
     });
     assert.deepEqual(resultat.journal.commands.slice().sort(), declarees.slice().sort(), 'commandes enregistrees = commandes declarees');
-    assert.equal(resultat.journal.commands.length, 11, 'onze commandes');
+    assert.equal(resultat.journal.commands.length, 12, 'douze commandes');
     banc.removeTree(path.join(copie, '..'));
   });
 
@@ -67,7 +67,7 @@ harness.describe('Paquet du service : enregistrement et manifeste (§2.6, §15.4
       'le service doit s enregistrer meme charge par require() : ' + resultat.sortie.trim().slice(0, 200)
     );
     assert.equal(resultat.journal.name, 'com.ouagkamel.app.iptvplayer.service', 'nom du service declare au hub');
-    assert.equal(resultat.journal.commands.length, 11, 'onze commandes enregistrees');
+    assert.equal(resultat.journal.commands.length, 12, 'douze commandes enregistrees');
     banc.removeTree(path.join(copie, '..'));
   });
 
@@ -98,10 +98,10 @@ harness.describe('Paquet du service : enregistrement et manifeste (§2.6, §15.4
       });
       assert.equal(nonAscii.length, 0, nom + ' ne contient que de l ASCII');
     });
-    // et le manifeste reste un JSON valide, avec ses onze commandes non publiques
+    // et le manifeste reste un JSON valide, avec ses douze commandes non publiques
     var info = manifeste();
     assert.equal(info.services.length, 1, 'un service declare');
-    assert.equal(info.services[0].commands.length, 11, 'onze commandes');
+    assert.equal(info.services[0].commands.length, 12, 'douze commandes');
   });
 
   harness.it('le point d entree du paquet est en JavaScript brut et sans dependance installee', function () {
@@ -123,7 +123,9 @@ harness.describe('Paquet du service : enregistrement et manifeste (§2.6, §15.4
  * page doit exister dans le paquet, et le pont LS2 embarqué doit remplacer la bibliothèque absente.
  */
 harness.describe('Page du paquet : ressources présentes et pont LS2 embarqué', function () {
-  var html = fs.readFileSync(path.join(APP_DIR, 'index.html'), 'utf8');
+  // La page de diagnostic a demenage en `diagnostic.html` quand l'interface Enact est devenue
+  // l'entree de l'application (`index.html`) : c'est elle qui porte le pont LS2 et le formulaire.
+  var html = fs.readFileSync(path.join(APP_DIR, 'diagnostic.html'), 'utf8');
 
   /** Ressources locales (hors URL absolues, ancres et données en ligne) référencées par la page. */
   function ressourcesLocales() {
@@ -496,7 +498,7 @@ harness.describe('Autorisation HTTP clair : detection et envoi depuis la page', 
   });
 
   harness.it('la page porte la case d autorisation et l envoie au service', function () {
-    var html = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'index.html'), 'utf8');
+    var html = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'diagnostic.html'), 'utf8');
     assert.ok(html.indexOf('id="httpclair"') !== -1, 'case d autorisation HTTP clair presente');
     assert.ok(html.indexOf('id="httpclair"') < html.indexOf('</form>') || html.indexOf('id="httpclair"') < html.indexOf('<script'), 'case dans le formulaire');
 
@@ -540,7 +542,7 @@ harness.describe('Sources preconfigurees : mecanisme sans secret dans le depot',
   var RACINE = path.join(__dirname, '..');
 
   harness.it('la page charge profils.js et remplit le formulaire depuis la liste', function () {
-    var html = fs.readFileSync(path.join(RACINE, 'src', 'app', 'index.html'), 'utf8');
+    var html = fs.readFileSync(path.join(RACINE, 'src', 'app', 'diagnostic.html'), 'utf8');
     assert.ok(html.indexOf('<script src="profils.js"></script>') !== -1, 'profils.js charge par la page');
     assert.ok(html.indexOf('id="source"') !== -1, 'liste des sources presente');
     assert.ok(
@@ -548,8 +550,11 @@ harness.describe('Sources preconfigurees : mecanisme sans secret dans le depot',
       'profils.js charge avant diagnostic.js'
     );
 
+    assert.ok(html.indexOf("id=\"etiquette-utilisateur\"") !== -1, 'champs porteurs d une etiquette nommable');
+
     var page = fs.readFileSync(path.join(RACINE, 'src', 'app', 'diagnostic.js'), 'utf8');
     assert.ok(page.indexOf('window.iptvProfils') !== -1, 'lecture de window.iptvProfils');
+    assert.ok(page.indexOf("el('etiquette-' + champ)") !== -1, 'etiquettes mises a jour par la source');
     assert.ok(page.indexOf('champsDepuisSource') !== -1, 'mise en forme testable des champs');
     assert.ok(page.indexOf("el('utilisateur').value = champs.username") !== -1, 'identifiants remplis');
     assert.ok(page.indexOf("el('httpclair').checked = true") !== -1, 'portail http : autorisation pre-cochee');
@@ -572,6 +577,14 @@ harness.describe('Sources preconfigurees : mecanisme sans secret dans le depot',
     assert.equal(champs.nom, 'Portail de test', 'libelle affiche');
     assert.equal(formatLib.champsDepuisSource({ url: 'https://portail.example.com' }).autoriserHttp, false, 'portail https');
     assert.equal(formatLib.champsDepuisSource(null), null, 'source absente');
+
+    // chaque champ est étiqueté du nom de la source : la provenance du compte de test est lisible
+    assert.equal(champs.etiquettes.utilisateur, "Nom d'utilisateur — Portail de test", 'libelle utilisateur');
+    assert.equal(champs.etiquettes.url, 'Adresse du portail — Portail de test', 'libelle adresse');
+    assert.equal(champs.etiquettes.profil, 'Identifiant de profil — Portail de test', 'libelle profil');
+    assert.equal(champs.etiquettes.motdepasse, 'Mot de passe — Portail de test', 'libelle mot de passe');
+    var sansNom = formatLib.champsDepuisSource({ url: 'http://hote:8080', username: 'u' });
+    assert.equal(sansNom.etiquettes.url, 'Adresse du portail — http://hote:8080', 'repli sur l adresse');
   });
 
   harness.it('le fichier versionne ne contient aucune source et est valide', function () {
@@ -634,3 +647,113 @@ function assertScriptAnalysable(source, nom) {
   assert.ok(source.length > 20, nom + ' non vide');
   new vm.Script(source, { filename: nom });
 }
+
+/**
+ * Interface Enact (V1-A, étape 3) : coquille de l'application, contrat des écrans et outillage de
+ * construction. Ces contrôles portent sur la **source** de l'interface (le bundle `ui/dist` est
+ * reconstruit par `npm run build:ui` et n'est pas versionné) : ils garantissent que la livraison
+ * contient bien les écrans, le pont LS2 et le consentement HTTP clair, sans dépendre d'un build.
+ */
+harness.describe('Interface Enact (V1-A) : coquille, ecrans et outillage', function () {
+  var RACINE = path.join(__dirname, '..');
+  var UI = path.join(RACINE, 'ui');
+
+  function lire(relatif) {
+    return fs.readFileSync(path.join(RACINE, relatif), 'utf8');
+  }
+
+  harness.it('la coquille charge profils.js puis le bundle, sans fichier externe', function () {
+    var html = lire(path.join('src', 'app', 'index.html'));
+    assert.ok(html.indexOf('id="root"') !== -1, 'point de montage React');
+    assert.ok(html.indexOf('ui/main.css') !== -1, 'feuille de style du bundle');
+    assert.ok(html.indexOf('ui/main.js') !== -1, 'bundle de l interface');
+
+    var rangProfils = html.indexOf('<script src="profils.js"></script>');
+    var rangBundle = html.indexOf('<script src="ui/main.js"></script>');
+    assert.ok(rangProfils !== -1, 'profils.js charge par la coquille');
+    assert.ok(rangProfils < rangBundle, 'les sources preconfigurees sont disponibles avant le bundle');
+    assert.equal(html.indexOf('webOSTV.js'), -1, 'aucun renvoi a la bibliotheque du SDK LG');
+
+    var appinfo = JSON.parse(lire('appinfo.json'));
+    assert.equal(appinfo.main, 'index.html', 'l entree du paquet est la coquille de l interface');
+  });
+
+  harness.it('le bundle embarque le pont LS2 et les douze commandes, sans appel direct', function () {
+    var entree = lire(path.join('ui', 'src', 'index.js'));
+    assert.ok(entree.indexOf('webos-bridge.js') !== -1, 'pont LS2 importe par l entree');
+    assert.ok(entree.indexOf('ReactDOM.render') !== -1, 'React 17 : montage par ReactDOM.render');
+
+    var ui = fs.readdirSync(path.join(UI, 'src', 'views')).join(' ');
+    assert.ok(ui.indexOf('Live.js') !== -1 && ui.indexOf('Reglages.js') !== -1, 'ecrans livres');
+
+    var couche = sansCommentaires(lire(path.join('ui', 'src', 'services', 'service.js')));
+    assert.ok(couche.indexOf('webOS.service.request') === -1, 'la couche service ne parle pas au bus directement');
+    ['testProfile', 'importerPlaylist', 'getCategories', 'getPage', 'getBuckets', 'search', 'getDetails', 'resolveStream', 'getImportJob', 'cancelOperation', 'deleteProfile', 'diagnostics'].forEach(function (commande) {
+      assert.ok(couche.indexOf(commande + ':') !== -1, 'commande exposee par la couche : ' + commande);
+    });
+    assert.ok(couche.indexOf('indexVersion') !== -1, 'version d index remontee aux ecrans');
+  });
+
+  harness.it('quatre sections, pile de panneaux et Retour : l accueil n est pas un ecran mort', function () {
+    var app = lire(path.join('ui', 'src', 'App', 'App.js'));
+    ['live', 'vod', 'series', 'reglages'].forEach(function (cle) {
+      assert.ok(app.indexOf("cle: '" + cle + "'") !== -1, 'section declaree : ' + cle);
+    });
+    assert.ok(app.indexOf('onBack={this.retour}') !== -1, 'Retour branche sur la pile de panneaux');
+    assert.ok(app.indexOf("vues: ['accueil', 'contenu', 'lecteur']") !== -1, 'lecteur empile au-dessus du contenu');
+    assert.ok(app.indexOf('allerAuContenu') !== -1, 'les cartes d accueil entrent dans la section');
+    assert.ok(app.indexOf('TabLayout') !== -1 && app.indexOf('index={indexDe(section)}') !== -1, 'barre de navigation globale (Spotlight)');
+
+    var accueil = lire(path.join('ui', 'src', 'views', 'Accueil.js'));
+    assert.ok(accueil.indexOf("'Incrément V1-B'") === -1, 'aucun faux ecran vide pour les sections non livrees');
+    assert.ok(accueil.indexOf('DESCRIPTIONS') !== -1, 'chaque carte annonce son contenu');
+  });
+
+  harness.it('Live TV : categories de l index, chaines paginees par le service', function () {
+    var live = lire(path.join('ui', 'src', 'views', 'Live.js'));
+    assert.ok(live.indexOf('service.getCategories(') !== -1, 'categories lues dans l index');
+    assert.ok(live.indexOf("contentType: 'live'") !== -1, 'contenu live demande');
+    assert.ok(live.indexOf('cursor: curseur') !== -1 && live.indexOf('page.cursor') !== -1, 'pagination par curseur');
+    assert.ok(live.indexOf('onScrollStop') !== -1, 'page suivante chargee a la demande');
+    assert.ok(live.indexOf('lancer({') !== -1, 'OK lance la lecture sans quitter la section');
+  });
+
+  harness.it('lecteur : un seul <video> natif alimente par resolveStream()', function () {
+    var lecteur = sansCommentaires(lire(path.join('ui', 'src', 'views', 'Lecteur.js')));
+    assert.equal((lecteur.match(/<video/g) || []).length, 1, 'un seul element video, jamais deux');
+    assert.ok(lecteur.indexOf('service\n') !== -1 || lecteur.indexOf('resolveStream') !== -1, 'resolution avant lecture');
+    assert.ok(lecteur.indexOf('requestedFormat') !== -1, 'format demande au service');
+    assert.ok(lecteur.indexOf('MediaError') !== -1 || lecteur.indexOf('video.error') !== -1, 'erreur media lisible');
+    assert.ok(lecteur.indexOf('461') !== -1, 'touche Retour de la telecommande prise en compte');
+    assert.ok(lecteur.indexOf('Spotlight.pause') !== -1 && lecteur.indexOf('Spotlight.resume') !== -1, 'Spotlight rendu a la sortie');
+  });
+
+  harness.it('reglages : consentement HTTP clair transmis au service (§8.2)', function () {
+    var reglages = lire(path.join('ui', 'src', 'views', 'Reglages.js'));
+    assert.ok(reglages.indexOf('insecureHttp: profil.insecureHttp') !== -1, 'consentement porte par testProfile');
+    var occurrences = reglages.split('insecureHttp: profil.insecureHttp').length - 1;
+    assert.ok(occurrences >= 2, 'consentement porte aussi par l import (' + occurrences + ' occurrences)');
+    assert.ok(reglages.indexOf('CheckboxItem') !== -1, 'le consentement est un choix explicite');
+    assert.ok(reglages.indexOf('getImportJob') !== -1, 'progression de l import suivie jusqu a la phase finale');
+    assert.ok(reglages.indexOf("'diagnostic.html'") !== -1, 'page de diagnostic toujours joignable');
+  });
+
+  harness.it('l outillage construit et embarque l interface, ou refuse de paqueter', function () {
+    var build = lire(path.join('tools', 'build-ui.js'));
+    assert.ok(build.indexOf('--openssl-legacy-provider') !== -1, 'fourniture OpenSSL pour webpack 4');
+    assert.ok(build.indexOf("majeureNode() >= 17") !== -1, 'option reservee aux Node qui la connaissent');
+    assert.ok(build.indexOf("'false'") !== -1 && build.indexOf('ILIB_ASSET_EMIT') !== -1, 'locales iLib non embarquees');
+
+    var outilBuild = require(path.join(RACINE, 'tools', 'build-ui.js'));
+    var env = outilBuild.environnementsDeBuild();
+    assert.equal(env.ILIB_ASSET_EMIT, 'false', 'aucune locale iLib dans le bundle');
+    if (outilBuild.majeureNode() >= 17) {
+      assert.ok(String(env.NODE_OPTIONS).indexOf('--openssl-legacy-provider') !== -1, 'Node recent : fourniture md4 activee');
+    }
+
+    var paquet = lire(path.join('tools', 'make-package.js'));
+    assert.ok(paquet.indexOf("'ui', 'dist'") !== -1, 'le paquet prend le bundle de l interface');
+    assert.ok(paquet.indexOf('interface Enact non construite') !== -1, 'refus explicite si le bundle manque');
+    assert.ok(paquet.indexOf("creerDossiers(uiApp)") !== -1, 'bundle depose sous ui/ dans le paquet');
+  });
+});

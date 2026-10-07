@@ -4,7 +4,7 @@
  * Banc d'essai du **point d'entrée du paquet** : simule les deux façons dont webOS peut charger le
  * fichier `main` du service — exécuté directement (`node index.js`) et chargé par `require()` depuis
  * un chargeur — et vérifie que dans les deux cas le service s'enregistre auprès du hub LS2 avec ses
- * onze commandes.
+ * douze commandes.
  *
  * C'est le test de non-régression du défaut « Service does not exist » : un démarrage placé derrière
  * `require.main === module` passe le premier cas et échoue au second.

@@ -37,6 +37,11 @@
           "public": false
         },
         {
+          "name": "getCategories",
+          "description": "Categories du catalogue, ordre fournisseur et nombre d'entrees",
+          "public": false
+        },
+        {
           "name": "getBuckets",
           "description": "Tranches alphabetiques issues des donnees",
           "public": false

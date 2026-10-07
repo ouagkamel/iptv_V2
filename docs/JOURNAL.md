@@ -1,5 +1,50 @@
 # Journal d'exécution
 
+## 2026-10-07 (suite 2) — Interface Enact (V1-A), libellés de champs et paquet 0.1.8
+
+**Étape 3 : l'interface Enact est écrite et se construit.** `ui/` contient un projet Enact autonome
+(`@enact/cli` 3.0.8, `@enact/core|ui|spotlight|i18n|webos` 3.4.9, `@enact/sandstone` 1.4.6,
+React 17.0.2, `.browserslistrc` `chrome 79`) :
+
+| Pièce | Rôle |
+|---|---|
+| `ui/src/services/ls2.js` | enveloppe promesses/abonnement de `webOS.service.request` (les écrans ne parlent jamais au bus) |
+| `ui/src/services/service.js` | les **douze commandes** LS2, réponse normalisée `{ok, data, error{code,message,retryable,hint}, indexVersion, brut}` |
+| `ui/src/services/profils.js` | sources préconfigurées lues dans `window.iptvProfils` (mêmes règles que la page) |
+| `ui/src/views/{Accueil,Live,Vod,Series,Reglages,Lecteur}.js` | quatre cartes, catégories + chaînes paginées par curseur, réglages + consentement HTTP clair, lecteur `<video>` unique alimenté par `resolveStream()` |
+| `ui/src/App/App.js` | pile `Panels` accueil → contenu (`TabLayout` 4 onglets, Spotlight) → lecteur, Retour par `onBack` |
+
+**Ce qui a dû être tranché** (chaîne de build ancienne, cible webOS 6) :
+
+| Réf. | Constat | Décision |
+|---|---|---|
+| **D-29** | `@enact/cli` n'a **pas** de commande `build` (seulement `pack`, `serve`, `lint`, …) et, sous Node ≥ 17, `enact pack` échoue sur `error:0308010C:digital envelope routines::unsupported` (webpack 4 calcule des empreintes `md4`, refusées par OpenSSL 3) | `tools/build-ui.js` lance `enact pack -p` et **ajoute `--openssl-legacy-provider` uniquement sur Node ≥ 17** (jamais sur les Node qui ne connaissent pas l'option) |
+| **D-30** | Le plugin iLib copiait **82 Mio** de locales dans `dist/` : aucun sens pour un `.ipk` de TV | `ILIB_ASSET_EMIT=false` : bundle de **~1,15 Mio** (`main.js` 947 007 o, `main.css` 205 654 o) qui déclare `ILIB_NO_ASSETS` — l'interface n'affiche que du texte français en dur et n'appelle aucune API de localisation |
+| **D-31** | L'interface Enact doit devenir l'entrée de l'application, mais la page de diagnostic reste le poste de contrôle de la phase 0A | `src/app/index.html` devient la **coquille de l'interface** (charge `profils.js` puis `ui/main.js`) ; la page de diagnostic déménage en `src/app/diagnostic.html`, joignable depuis *Réglages* → « Page de diagnostic (0A) », avec un lien retour |
+| **D-32** | Le compte de test était prérempli mais les champs ne disaient pas **d'où** venait la valeur | chaque champ porte le libellé de la source : « Nom d'utilisateur — Portail de test (Xtream) », etc. (`format.champsDepuisSource` → `etiquettes`, appliqué par `diagnostic.js` et par l'écran Réglages). Les champs restent **préremplis avec les données** (demande explicite : rien à ressaisir) |
+
+**Deux pièges de configuration corrigés au passage** : les écrans Enact sont écrits sans fonction
+anonyme dans les props JSX et sans `var` (la chaîne Enact refuse les avertissements de style), et les
+fichiers ES5 volontaires de la page (`format.js`, `webos-bridge.js`) portent un
+`/* eslint-disable no-var */` justifié — la construction passe donc **sans aucun avertissement**.
+`getCategories` (douzième commande, indispensable au panneau des catégories) est livrée avec ses
+tests.
+
+**Emballage** : `npm run pack:webos` construit maintenant le service **et** l'interface ;
+`tools/make-package.js` refuse de paqueter si `ui/dist/main.js` manque et dépose le bundle sous
+`ui/` dans le paquet. La livraison contient donc : `index.html` (interface), `diagnostic.html`
+(page de contrôle), `ui/main.js` + `ui/main.css`, `webos-bridge.js`, `format.js`, `profils.js`,
+`assets/`, et le service compilé.
+
+**État des tests** : `npm test` → **192 tests, 0 échec** (Node 20 et Node 8.12), dont **7 nouveaux**
+spécifiques à l'interface (coquille, douze commandes, quatre sections + Retour, pagination par
+curseur du Live, lecteur `<video>` unique + `resolveStream`, consentement HTTP clair, outillage de
+construction). La CI (`.github/workflows/ci.yml`) installe désormais les dépendances de l'interface
+et la construit (`npm --prefix ui ci` puis `npm run build:ui`).
+
+**Version 0.1.8** (interface + libellés) : publiée en `v0.1.8-phase0a` sans source préconfigurée,
+avec le pack simulateur. L'essai **sur téléviseur** (phase 0A) reste le critère bloquant.
+
 ## 2026-10-07 (suite) — Source préconfigurée et publication 0.1.7
 
 **Déblocage** : après génération d'un **nouveau jeton**, les écritures GitHub repassent

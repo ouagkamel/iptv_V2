@@ -22,8 +22,11 @@
  * ailleurs), **rien n'est écrasé** : le fichier se contente de compléter ce qui manque.
  */
 
-(function (global) {
-  var racine = global || (typeof self !== 'undefined' ? self : this);
+/* global self */
+/* eslint-disable no-var -- fichier ES5 volontaire : charge tel quel par la page de diagnostic, sans transpilation */
+/* eslint-disable babel/new-cap -- `PalmServiceBridge` est le nom impose par la plateforme */
+(function (racineGlobale) {
+  var racine = racineGlobale || (typeof self !== 'undefined' ? self : this);
   var webOS = racine.webOS || (racine.webOS = {});
   var service = webOS.service || (webOS.service = {});
   var pontBasNiveau = typeof racine.PalmServiceBridge === 'function' ? racine.PalmServiceBridge : null;

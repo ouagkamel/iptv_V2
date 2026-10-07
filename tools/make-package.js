@@ -96,6 +96,26 @@ function main() {
   copyTree(APP_SRC, appDir);
   if (fs.existsSync(path.join(APP_SRC, 'assets'))) copyTree(path.join(APP_SRC, 'assets'), path.join(appDir, 'assets'));
 
+  // 3ter) interface Enact (V1-A) : `ui/dist` est produit par `npm run build:ui` (Enact + Sandstone).
+  // Le bundle embarque le pont LS2 et les écrans ; `index.html` ne charge que `profils.js` et lui.
+  var uiDist = path.join(ROOT, 'ui', 'dist');
+  if (!fs.existsSync(path.join(uiDist, 'main.js'))) {
+    fail('interface Enact non construite (ui/dist/main.js absent) — executer `npm run build:ui`');
+  }
+  var uiApp = path.join(appDir, 'ui');
+  creerDossiers(uiApp);
+  ['main.js', 'main.css'].forEach(function (nom) {
+    if (!fs.existsSync(path.join(uiDist, nom))) fail('interface Enact incomplete : ui/dist/' + nom + ' absent');
+    fs.copyFileSync(path.join(uiDist, nom), path.join(uiApp, nom));
+  });
+  console.log(
+    '[pack] interface Enact : ui/main.js (' +
+      fs.statSync(path.join(uiApp, 'main.js')).size +
+      ' octets) + ui/main.css (' +
+      fs.statSync(path.join(uiApp, 'main.css')).size +
+      ' octets)'
+  );
+
   // 3bis) sources préconfigurées : le fichier **local** (hors dépôt) remplace celui du dépôt dans
   // l'application empaquetée. `IPTV_SANS_SOURCES=1` construit une livraison publiable, sans secret.
   var sourceLocales = path.join(ROOT, 'secrets.local', 'profils.js');
