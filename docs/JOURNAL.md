@@ -1,5 +1,44 @@
 # Journal d'exécution
 
+## 2026-10-07 — HTTP clair et cause réelle des échecs (0.1.6) ; écritures GitHub bloquées
+
+**Ce qui a été observé** : « Tester la source » répond `security/insecurescheme` et « Importer »
+répond `internal/unexpected`. Les deux ont **la même cause** : l'autorisation « portail en HTTP
+clair » (§8.2) — le portail de contrôle est en `http://`.
+
+| Réf. | Défaut | Cause réelle | Correctif |
+|---|---|---|---|
+| **D-26** | Le refus `security/insecureScheme` n'était actionnable nulle part : aucun contrôle correspondant dans la page, aucun hôte à confirmer, et l'import partait quand même pour échouer plus loin | Le service exigeait `consent.insecureHttp` mais ne disait ni **où** ni **pour quel hôte**, et seul le chemin du test de source portait l'information (dans `warnings`, pas dans l'erreur) | `security/insecureScheme` porte désormais `hint: hote:<hôte>` au **test** comme à l'**import** ; l'import **refuse immédiatement** (aucun job lancé) ; la page porte la case « Portail en HTTP clair : j'autorise », la coche automatiquement sur demande du service, affiche un bandeau d'explication avec bouton **Relancer**, et mémorise le choix par hôte (`localStorage`) |
+| **D-27** | `importPlaylist` répondait `internal/unexpected — « import interrompu avant la bascule »` pour **n'importe quel** échec | `outcome.error` est une **forme sérialisée** (`toShape()`), pas une instance : le test `instanceof AppError` était donc toujours faux et la cause était remplacée par un message générique | la forme est relue et reconstituée en erreur typée (`code`, `message`, `hint`) : `auth/*`, `network/*`, `security/*` remontent tels quels à l'appelant et au journal |
+
+**Ce que la page fait maintenant** : un portail `http://` s'autorise en **un clic** (case + bandeau
++ Relancer), l'autorisation est enregistrée par hôte et par profil, et tout échec affiche son code
+réel (`auth/expired`, `auth/invalidCredentials`, `network/http`, `security/insecureScheme`…).
+
+**Validation sur portail réel (compte de test neuf)** : `npm run verify:portal` → **CONTROLE
+REUSSI** — compte `Active` (échéance 05/11/2026), formats `m3u8`/`ts`, import live **5 659 entrées en
+1,6 s** (1 858 527 octets), page de 200 objets, 27 tranches, tri/recherche, détail sans secret
+(mode `derived`), `resolveStream` → **302** → `HTTP 200 video/mp2t`, **lecture réelle de 1 051 643
+octets**, MPEG-TS vérifié (`0x47` tous les 188 octets). Le portail précédent, lui, a **expiré** en
+cours de session (il répondait `Expired` puis HTTP 451) : le service le dit maintenant explicitement
+au lieu d'une cascade d'erreurs réseau.
+
+**Tests** : **178, 0 échec** sur Node 20 **et** Node 8.12 (nouveaux : refus immédiat sans job, import
+abouti après confirmation, cause réelle d'un échec d'import, extraction de l'hôte à confirmer,
+présence de la case dans la page et du consentement dans les appels).
+
+**Livraison** : version **0.1.6** construite (`dist/0.1.6/`, `dist/0.1.6.zip` 763 728 o,
+`dist/0.1.6-simulateur.zip` 261 402 o, `.ipk` 234 700 o, sha256 `3b4c4d1a…7952`),
+`docs/RELEASE-0.1.6.md` prêt.
+
+**Blocage externe** : **toutes les écritures GitHub du compte échouent en HTTP 500** — création de
+publication, téléversement d'actifs, `git push`, création de ticket, écriture d'un blob témoin — sur
+les **trois** dépôts du compte, alors que les lectures passent et que le jeton présente
+`permissions: {admin, push, maintain: true}`. GitHub se déclare « All Systems Operational ».
+Vérifié aussi par un second jeton (fourni par l'utilisateur) : même résultat. C'est donc un blocage
+**côté compte** (ou incident GitHub non annoncé), pas une question de droits : la publication de
+`v0.1.6-phase0a` est **prête mais différée**.
+
 ## 2026-10-01 — Simulateur : le service répond, deux défauts de plus (0.1.5)
 
 **Ce qui a été observé** : la page parle enfin au service (plus de « Service does not exist »), mais

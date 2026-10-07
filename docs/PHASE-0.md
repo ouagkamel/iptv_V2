@@ -122,6 +122,24 @@ journalisé), le pipeline média du téléviseur et les performances réelles. C
 mesurer **sur la TV** (§12) ; le simulateur sert à valider le protocole, l'index, l'import et
 l'enchaînement des écrans.
 
+### Portail en HTTP clair (`security/insecureScheme`)
+
+Un portail servi en `http://` (cas du portail de contrôle) est **refusé par principe** (§8.2) tant que
+son hôte n'a pas été explicitement autorisé. Depuis 0.1.6 la boucle est fermée sans rien connaître du
+code :
+
+1. **Tester la source** répond `security/insecureScheme` **avec l'hôte** (`hint: hote:<hôte>`) ;
+2. la page **coche** la case « Portail en HTTP clair : j'autorise », affiche le risque (identifiants et
+   flux en clair sur le réseau) et propose **Relancer** ;
+3. l'import fait de même : il **refuse immédiatement** — aucun job n'est lancé — au lieu d'échouer
+   après coup ;
+4. une fois confirmé, le service enregistre l'autorisation **par hôte et par profil** ; les appels
+   suivants passent sans question.
+
+Si un ticket d'erreur parle d'autre chose (`auth/expired`, `network/http`, `catalog/busy`…), la
+réponse porte désormais **le code et l'indication réels** : tout échec d'import auparavant annoncé
+comme `internal/unexpected` porte maintenant sa cause.
+
 **Contrôle hors TV, avant de monter sur la TV** (mêmes commandes que l'application, service
 embarqué) :
 
