@@ -22,7 +22,8 @@
     "dist": "npm run build:service && npm run build:ui && node tools/make-dist.js",
     "verify:portal": "node tools/verify-portal.js",
     "stage:simulator": "node tools/stage-simulator.js",
-    "build:ui": "node tools/build-ui.js"
+    "build:ui": "node tools/build-ui.js",
+    "dist:local": "node tools/make-local.js"
   },
   "devDependencies": {
     "@types/node": "^8.10.66",
