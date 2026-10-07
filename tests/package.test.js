@@ -13,6 +13,7 @@
 var assert = require('./assert');
 var harness = require('./harness');
 var banc = require('./entrypoint-harness');
+var childProcess = require('child_process');
 var fs = require('fs');
 var os = require('os');
 var path = require('path');
@@ -529,3 +530,107 @@ harness.describe('Autorisation HTTP clair : detection et envoi depuis la page', 
     );
   });
 });
+
+/**
+ * Sources préconfigurées : la page doit pouvoir proposer un portail sans rien ressaisir, et le dépôt
+ * ne doit **jamais** contenir les identifiants (ils vivent dans `secrets.local/profils.js`, hors
+ * dépôt, remplacé à l'empaquetage ; la publication refuse une livraison qui les embarque).
+ */
+harness.describe('Sources preconfigurees : mecanisme sans secret dans le depot', function () {
+  var RACINE = path.join(__dirname, '..');
+
+  harness.it('la page charge profils.js et remplit le formulaire depuis la liste', function () {
+    var html = fs.readFileSync(path.join(RACINE, 'src', 'app', 'index.html'), 'utf8');
+    assert.ok(html.indexOf('<script src="profils.js"></script>') !== -1, 'profils.js charge par la page');
+    assert.ok(html.indexOf('id="source"') !== -1, 'liste des sources presente');
+    assert.ok(
+      html.indexOf('<script src="profils.js"></script>') < html.indexOf('<script src="diagnostic.js"></script>'),
+      'profils.js charge avant diagnostic.js'
+    );
+
+    var page = fs.readFileSync(path.join(RACINE, 'src', 'app', 'diagnostic.js'), 'utf8');
+    assert.ok(page.indexOf('window.iptvProfils') !== -1, 'lecture de window.iptvProfils');
+    assert.ok(page.indexOf('champsDepuisSource') !== -1, 'mise en forme testable des champs');
+    assert.ok(page.indexOf("el('utilisateur').value = champs.username") !== -1, 'identifiants remplis');
+    assert.ok(page.indexOf("el('httpclair').checked = true") !== -1, 'portail http : autorisation pre-cochee');
+  });
+
+  harness.it('les champs sont deduits de la source, autorisation HTTP clair comprise', function () {
+    var source = {
+      id: 'p1',
+      nom: 'Portail de test',
+      url: 'http://portail.example.com:8080',
+      username: 'utilisateur-test',
+      password: 'motdepasse-test'
+    };
+    var champs = formatLib.champsDepuisSource(source);
+    assert.equal(champs.profileId, 'p1', 'identifiant de profil');
+    assert.equal(champs.url, 'http://portail.example.com:8080', 'adresse');
+    assert.equal(champs.username, 'utilisateur-test', 'nom d utilisateur');
+    assert.equal(champs.password, 'motdepasse-test', 'mot de passe');
+    assert.equal(champs.autoriserHttp, true, 'portail en http : autorisation pre-cochee');
+    assert.equal(champs.nom, 'Portail de test', 'libelle affiche');
+    assert.equal(formatLib.champsDepuisSource({ url: 'https://portail.example.com' }).autoriserHttp, false, 'portail https');
+    assert.equal(formatLib.champsDepuisSource(null), null, 'source absente');
+  });
+
+  harness.it('le fichier versionne ne contient aucune source et est valide', function () {
+    var fichier = path.join(RACINE, 'src', 'app', 'profils.js');
+    var contenu = fs.readFileSync(fichier, 'utf8');
+    assert.ok(/window\.iptvProfils\s*=\s*window\.iptvProfils\s*\|\|\s*\{\s*sources:\s*\[\s*\]\s*\}/.test(contenu), 'liste vide dans le depot');
+    assertScriptAnalysable(contenu, 'profils.js');
+  });
+
+  harness.it('un fichier local de sources est integre a l empaquetage, jamais au depot', function () {
+    var local = path.join(RACINE, 'secrets.local', 'profils.js');
+    var ignore = fs.readFileSync(path.join(RACINE, '.gitignore'), 'utf8');
+    assert.ok(ignore.indexOf('secrets.local/') !== -1, 'secrets.local/ ignore par git');
+    var outil = fs.readFileSync(path.join(RACINE, 'tools', 'make-package.js'), 'utf8');
+    assert.ok(outil.indexOf("path.join(ROOT, 'secrets.local', 'profils.js')") !== -1, 'injection a l empaquetage');
+    assert.ok(outil.indexOf('IPTV_SANS_SOURCES') !== -1, 'construction sans source possible');
+    if (fs.existsSync(local)) {
+      // des sources existent localement : le depot ne doit en contenir **aucune trace**
+      var identifiants = [];
+      var bloc = /sources\s*:\s*\[([\s\S]*?)\]/.exec(fs.readFileSync(local, 'utf8'));
+      var champs = bloc ? bloc[1].match(/(username|password)\s*:\s*'([^']+)'/g) || [] : [];
+      champs.forEach(function (champ) {
+        var valeur = /'([^']+)'$/.exec(champ);
+        if (valeur && valeur[1].length > 3) identifiants.push(valeur[1]);
+      });
+      identifiants.forEach(function (secret) {
+        var suivis = (fs.existsSync(path.join(RACINE, '.git')) ? suivisGit(RACINE) : []).filter(function (fichier) {
+          return !/\.(png|jpg|zip|ipk)$/i.test(fichier);
+        });
+        suivis.forEach(function (relatif) {
+          var complet = path.join(RACINE, relatif);
+          if (!fs.existsSync(complet) || fs.statSync(complet).isDirectory()) return;
+          var contenu = fs.readFileSync(complet, 'utf8');
+          assert.equal(
+            contenu.indexOf(secret) === -1,
+            true,
+            'le fichier suivi ' + relatif + ' ne doit pas contenir un identifiant de secrets.local'
+          );
+        });
+      });
+    }
+  });
+
+  harness.it('la publication refuse une livraison qui embarque des sources', function () {
+    var outil = fs.readFileSync(path.join(RACINE, 'tools', 'publish-release.js'), 'utf8');
+    assert.ok(outil.indexOf('verifierSansSecrets') !== -1, 'controle present');
+    assert.ok(outil.indexOf('Publication refusee') !== -1, 'refus explicite');
+  });
+});
+
+/** Liste des fichiers suivis par git (vide si git est absent). */
+function suivisGit(racine) {
+  var resultat = childProcess.spawnSync('git', ['ls-files'], { cwd: racine, encoding: 'utf8' });
+  if (resultat.status !== 0 || !resultat.stdout) return [];
+  return resultat.stdout.split('\n').filter(Boolean);
+}
+
+/** Le script doit être analysable : un fichier livré vide a déjà échappé à une revue (D-20). */
+function assertScriptAnalysable(source, nom) {
+  assert.ok(source.length > 20, nom + ' non vide');
+  new vm.Script(source, { filename: nom });
+}

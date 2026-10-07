@@ -89,7 +89,32 @@
     return null;
   }
 
-  var api = { texteErreur: texteErreur, texteReponse: texteReponse, hoteACOnfirmer: hoteACOnfirmer };
+  /**
+   * Champs de formulaire correspondant à une **source préconfigurée** (`profils.js`).
+   *
+   * Fonction pure, testable sous Node : c'est elle qui décide ce que la page remplit quand
+   * l'utilisateur choisit une source dans la liste (et si l'autorisation « HTTP clair » doit être
+   * pré-cochée parce que l'adresse est en `http://`).
+   */
+  function champsDepuisSource(source) {
+    if (!estObjet(source)) return null;
+    var url = String(source.url || '');
+    return {
+      profileId: String(source.id || ''),
+      url: url,
+      username: String(source.username || ''),
+      password: String(source.password || ''),
+      autoriserHttp: url.indexOf('http://') === 0,
+      nom: String(source.nom || url || 'source')
+    };
+  }
+
+  var api = {
+    texteErreur: texteErreur,
+    texteReponse: texteReponse,
+    hoteACOnfirmer: hoteACOnfirmer,
+    champsDepuisSource: champsDepuisSource
+  };
 
   if (racine) {
     racine.iptvFormat = api;

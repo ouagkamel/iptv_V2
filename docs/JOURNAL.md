@@ -1,5 +1,30 @@
 # Journal d'exécution
 
+## 2026-10-07 (suite) — Source préconfigurée et publication 0.1.7
+
+**Déblocage** : après génération d'un **nouveau jeton**, les écritures GitHub repassent
+(témoin d'écriture HTTP 201) ; les commits en attente ont été poussés (`d1f9ef2..20a9499`), la
+publication `v0.1.7-phase0a` créée, et les publications `v0.1.5`/`v0.1.4` annotées « remplacée ».
+
+| Réf. | Constat | Correctif |
+|---|---|---|
+| **D-28** | Il fallait ressaisir adresse, identifiant de profil, nom d'utilisateur et mot de passe à chaque essai — sur simulateur comme sur TV | **source préconfigurée** : `secrets.local/profils.js` (local, `gitignore`) remplace `src/app/profils.js` à l'empaquetage ; la page propose alors la source dans une liste (*Source préconfigurée*), remplit les champs, coche l'autorisation HTTP clair si l'adresse est en `http://`, et il ne reste qu'à cliquer **Tester la source** puis **Importer (live)** |
+
+Garde-fous ajoutés : `IPTV_SANS_SOURCES=1 npm run dist` construit une livraison **sans** source ;
+`tools/publish-release.js` **refuse de publier** une livraison qui embarque des sources
+(`dist/<version>/app/profils.js` déclare une liste non vide) — vérifié dans les deux sens : refus
+explicite sur le build avec source, publication acceptée sur le build propre. Le fichier versionné
+`src/app/profils.js` ne contient **aucune** source (liste vide) et documente le mécanisme ; un test
+vérifie que **aucun fichier suivi par git** ne contient un identifiant de `secrets.local`.
+
+**Livraison** : version **0.1.7** — `npm test` → **183 tests, 0 échec** (Node 20 et Node 8.12) ;
+publication **`v0.1.7-phase0a`** avec l'`.ipk` pour la TV (236 076 o, sha256 `3f1868a2…62a9`),
+`0.1.7-simulateur.zip` (263 446 o, sha256 `7774d7ec…0ba8`), `0.1.7.zip` (769 082 o, sha256
+`f820301c…2384`) et `SHA256SUMS.txt` (12 170 o, sha256 `1f68c167…526f`) — quatre pièces jointes
+**sans identifiants**, re-téléchargées depuis l'URL publique et comparées octet à octet. La source
+préconfigurée, elle, reste **locale** (`release/local/0.1.7-simulateur-source.zip`, hors dépôt) : y
+publier des identifiants les exposerait sur un dépôt public.
+
 ## 2026-10-07 — HTTP clair et cause réelle des échecs (0.1.6) ; écritures GitHub bloquées
 
 **Ce qui a été observé** : « Tester la source » répond `security/insecurescheme` et « Importer »

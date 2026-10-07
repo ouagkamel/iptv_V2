@@ -91,6 +91,25 @@ versionné (l'`.ipk` est un artefact de build, jamais committé).
 | 7 | **Diagnostic du service** à nouveau | `indexes[0].entryCount` = nombre de chaînes du portail, `jobs[]` sans secret |
 | 8 | **Supprimer le profil** | `deleted: true`, `masterKeyRemoved: true`, puis « Page » répond `catalog/indexMissing` |
 
+### Source préconfigurée (éviter de ressaisir les identifiants)
+
+Pour un banc d'essai, les identifiants peuvent être préparés une fois pour toutes dans
+`secrets.local/profils.js` (**hors dépôt**, `gitignore`) :
+
+```js
+window.iptvProfils = { sources: [ { id: 'p1', nom: 'Portail de test',
+  url: 'http://portail:8080', username: '…', password: '…' } ] };
+```
+
+`npm run dist` intègre ce fichier à l'application (il **remplace** `src/app/profils.js`) ; la page
+propose alors la source dans la liste *Source préconfigurée*, remplit l'adresse, le profil et les
+identifiants, et coche l'autorisation HTTP clair si l'adresse est en `http://` — il ne reste qu'à
+cliquer **Tester la source**, **Importer (live)**, **Page**…
+
+Deux règles à ne pas contourner : `IPTV_SANS_SOURCES=1 npm run dist` pour toute livraison destinée à
+être partagée, et `tools/publish-release.js` refuse de publier une archive qui embarque des sources
+(les dépôts et publications GitHub sont publics).
+
 ### Simulateur webOS (banc d'essai hors téléviseur)
 
 Le simulateur **n'installe pas** de `.ipk` : il lance une application depuis un **dossier** et il

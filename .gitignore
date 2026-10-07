@@ -7,6 +7,9 @@ service/com.ouagkamel.app.iptvplayer.service/lib/
 # paquets webOS produits par `npm run pack:webos` (l'ipk n'est pas versionné)
 release/
 
+# sources preconfigurees avec identifiants (remplace src/app/profils.js a l'empaquetage)
+secrets.local/
+
 # artefacts de build de l'interface (Enact)
 .sandstone/
 webos-meta/build/

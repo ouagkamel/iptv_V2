@@ -77,6 +77,13 @@
 
       <div class="carte">
         <h2>Source Xtream</h2>
+        <label for="source">Source préconfigurée</label>
+        <select id="source">
+          <option value="">— saisie manuelle —</option>
+        </select>
+        <div class="aide" id="aide-source">Aucune source préconfigurée : renseigner les champs
+        ci-dessous. Une source peut être préparée dans <code>secrets.local/profils.js</code> (hors
+        dépôt) puis intégrée à l'empaquetage — les champs se remplissent alors tout seuls.</div>
         <label for="profil">Identifiant de profil</label>
         <input id="profil" value="p1">
         <label for="url">Adresse du portail</label>
@@ -140,6 +147,7 @@
 
 <script src="webos-bridge.js"></script>
 <script src="format.js"></script>
+<script src="profils.js"></script>
 <script src="diagnostic.js"></script>
 </body>
 </html>

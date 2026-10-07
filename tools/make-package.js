@@ -96,6 +96,16 @@ function main() {
   copyTree(APP_SRC, appDir);
   if (fs.existsSync(path.join(APP_SRC, 'assets'))) copyTree(path.join(APP_SRC, 'assets'), path.join(appDir, 'assets'));
 
+  // 3bis) sources préconfigurées : le fichier **local** (hors dépôt) remplace celui du dépôt dans
+  // l'application empaquetée. `IPTV_SANS_SOURCES=1` construit une livraison publiable, sans secret.
+  var sourceLocales = path.join(ROOT, 'secrets.local', 'profils.js');
+  if (process.env.IPTV_SANS_SOURCES === '1') {
+    console.log('[pack] sources preconfigurees : ignorees (IPTV_SANS_SOURCES=1)');
+  } else if (fs.existsSync(sourceLocales)) {
+    fs.copyFileSync(sourceLocales, path.join(appDir, 'profils.js'));
+    console.log('[pack] sources preconfigurees : secrets.local/profils.js integre (hors depot)');
+  }
+
   creerDossiers(RELEASE);
   var commande = aresPackageCommand();
   var argumentsOutils = [appDir, SERVICE_DIR, '-o', RELEASE, '--no-minify'];

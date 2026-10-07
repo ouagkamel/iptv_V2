@@ -128,6 +128,35 @@ function televerser(uploadUrl, fichier) {
   });
 }
 
+/**
+ * Refus de publier une livraison qui embarque des **sources préconfigurées avec identifiants** :
+ * `dist/<version>/app/profils.js` les déclare. Les dépôts et les publications GitHub sont publics ;
+ * une telle archive exposerait le compte. Reconstruire sans elles pour publier :
+ *
+ *   IPTV_SANS_SOURCES=1 npm run dist
+ */
+/** Retire commentaires de bloc et de ligne : le fichier du dépôt **documente** une source en
+ * commentaire, ce qui ne doit pas être confondu avec une source réellement déclarée. */
+function sansCommentaires(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+}
+
+function verifierSansSecrets(version) {
+  var profils = path.join(ROOT, 'dist', version, 'app', 'profils.js');
+  if (!fs.existsSync(profils)) return;
+  var contenu = sansCommentaires(fs.readFileSync(profils, 'utf8'));
+  var declaration = /window\.iptvProfils\s*=([\s\S]*?);/.exec(contenu);
+  if (!declaration) return;
+  var liste = /sources\s*:\s*\[([\s\S]*?)\]/.exec(declaration[1]);
+  if (liste && liste[1].trim() !== '') {
+    console.error(
+      'Publication refusee : dist/' + version + '/app/profils.js contient des sources preconfigurees\n' +
+        '(identifiants de compte). Reconstruire une livraison publiable : IPTV_SANS_SOURCES=1 npm run dist'
+    );
+    process.exit(3);
+  }
+}
+
 function piecesJointes(version) {
   return [
     path.join(ROOT, 'release', 'com.ouagkamel.app.iptvplayer_' + version + '_all.ipk'),
@@ -140,6 +169,7 @@ function piecesJointes(version) {
 }
 
 function creer(balise, version, notes) {
+  verifierSansSecrets(version);
   var corps = lire(notes);
   return appel('POST', '/repos/' + REPO + '/releases', {
     tag_name: balise,

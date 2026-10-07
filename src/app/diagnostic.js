@@ -145,7 +145,7 @@ function environnement() {
     // le simulateur webOS n'enregistre pas les services déclarés par un .ipk : il faut les ajouter
     // à la main (File > Add Service). Le reconnaître évite de chercher un défaut côté paquet.
     simulateur: /simulator|emulator/i.test(navigator.userAgent),
-    versionPage: '0.1.6'
+    versionPage: '0.1.7'
   };
 }
 
@@ -321,6 +321,51 @@ function traiterConsentement(reponse) {
   return true;
 }
 
+/** Sources préconfigurées fournies par `profils.js` (le fichier local remplace celui du dépôt). */
+function sourcesPreconfigurees() {
+  var paquet = window.iptvProfils;
+  return paquet && paquet.sources && paquet.sources.length ? paquet.sources : [];
+}
+
+/**
+ * Remplit le formulaire à partir d'une source préconfigurée : c'est ce qui permet de ne rien
+ * ressaisir sur la TV ou dans le simulateur — la source choisie porte déjà l'adresse, le profil et
+ * les identifiants.
+ */
+function appliquerSource(source) {
+  var champs = format().champsDepuisSource ? format().champsDepuisSource(source) : null;
+  if (!champs) return;
+  if (champs.profileId) el('profil').value = champs.profileId;
+  el('url').value = champs.url;
+  el('utilisateur').value = champs.username;
+  el('motdepasse').value = champs.password;
+  if (champs.autoriserHttp) el('httpclair').checked = true;
+  journal('source préconfigurée : ' + champs.nom);
+}
+
+/** Remplit la liste déroulante et, s'il n'y a qu'une source, la sélectionne d'emblée. */
+function initialiserSources() {
+  var sources = sourcesPreconfigurees();
+  var liste = el('source');
+  if (!liste) return;
+  sources.forEach(function (source, index) {
+    var option = document.createElement('option');
+    option.value = String(index);
+    option.textContent = source.nom || source.url || 'source ' + (index + 1);
+    liste.appendChild(option);
+  });
+  if (sources.length) {
+    el('aide-source').innerHTML = sources.length + ' source(s) préconfigurée(s) disponible(s) : ' +
+      'le choix remplit l\'adresse, le profil et les identifiants.';
+    liste.value = '0';
+    appliquerSource(sources[0]);
+  }
+  liste.onchange = function () {
+    if (liste.value === '') { journal('saisie manuelle'); return; }
+    appliquerSource(sources[Number(liste.value)]);
+  };
+}
+
 function identifiants() {
   return {
     username: el('utilisateur').value,
@@ -352,6 +397,8 @@ document.addEventListener('DOMContentLoaded', function () {
   try {
     if (hotePrecedent && window.localStorage.getItem(cleHote(hotePrecedent)) === '1') el('httpclair').checked = true;
   } catch (_erreur) { /* stockage refusé : sans conséquence */ }
+
+  initialiserSources();
 
   el('btn-temoin').onclick = function () { temoinBus(); };
   el('btn-environnement').onclick = function () {
