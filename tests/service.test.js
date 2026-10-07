@@ -98,8 +98,8 @@ function importContent(stack, options) {
     profileId: options.profileId || 'p1',
     kind: 'xtream',
     contentType: options.contentType || 'live',
-    source: { url: PORTAL_URL, credentials: options.credentials || credentials(stack) },
-    consent: { persistSecrets: options.persistSecrets === true }
+    source: { url: options.url || PORTAL_URL, credentials: options.credentials || credentials(stack) },
+    consent: { persistSecrets: options.persistSecrets === true, insecureHttp: options.insecureHttp === true }
   };
   if (options.groups) payload.groups = options.groups;
   return stack.bus.invoke('importPlaylist', payload, { subscribed: options.subscribed !== false }).then(function (initial) {
@@ -749,6 +749,133 @@ harness.describe('Import refuse proprement sur un compte inutilisable (auth/*)',
       })
       .then(function (initial) {
         assert.equal(initial.returnValue, true, 'import accepte');
+      });
+  });
+});
+
+/**
+ * HTTP clair (§8.2) : le service doit **refuser immédiatement** — avec l'hôte à confirmer — au lieu
+ * de lancer un import qui échouerait plus loin. Constaté en phase 0A : l'utilisateur voyait
+ * `security/insecurescheme` au test de source puis un `internal/unexpected` à l'import, sans lien
+ * apparent entre les deux.
+ */
+harness.describe('Portail en HTTP clair : refus explicite, puis import apres confirmation', function () {
+  var URL_CLAIR = 'http://portal.example.com';
+
+  harness.it('testProfile signale l hote a confirmer (hint)', function () {
+    var stack = makeStack();
+    return stack.bus
+      .invoke('testProfile', { profileId: 'p1', kind: 'xtream', baseUrl: URL_CLAIR, username: USERNAME, password: PASSWORD })
+      .then(function (replies) {
+        var verdict = replies[0].data;
+        var erreur = verdict.errors.filter(function (entree) {
+          return entree.code === 'security/insecureScheme';
+        })[0];
+        assert.ok(erreur, 'erreur security/insecureScheme presente');
+        assert.equal(erreur.hint, 'hote:portal.example.com', 'hote a confirmer transmis');
+        assert.equal(verdict.ok, false, 'verdict non conforme sans confirmation');
+      });
+  });
+
+  harness.it('importPlaylist refuse sans confirmation, sans creer de job', function () {
+    var stack = makeStack();
+    return addProfile(stack, { baseUrl: URL_CLAIR }).then(function () {
+      return stack.bus
+        .invoke('importPlaylist', {
+          profileId: 'p1',
+          kind: 'xtream',
+          contentType: 'live',
+          source: { url: URL_CLAIR, credentials: credentials(stack) },
+          consent: { persistSecrets: false }
+        }, { subscribed: true })
+        .then(function (replies) {
+          var premiere = replies[0];
+          assert.equal(premiere.returnValue, false, 'import refuse');
+          assert.equal(premiere.error.code, 'security/insecureScheme', 'code normalise');
+          assert.equal(premiere.error.hint, 'hote:portal.example.com', 'hote a confirmer');
+          var jobs = replies.filter(function (reply) {
+            return reply.data && reply.data.job;
+          });
+          assert.equal(jobs.length, 0, 'aucun job lance');
+        });
+    });
+  });
+
+  harness.it('avec consent.insecureHttp, l import aboutit', function () {
+    var stack = makeStack();
+    return addProfile(stack, { baseUrl: URL_CLAIR })
+      .then(function () {
+        return importContent(stack, {
+          credentials: credentials(stack),
+          insecureHttp: true,
+          url: URL_CLAIR
+        });
+      })
+      .then(function () {
+        // `importContent` rend la **première** réponse (le jobId) : l'état final se lit dans la
+        // dernière réponse publiée sur l'abonnement.
+        var finales = repliesOf(stack.bus, 'importPlaylist').filter(function (reply) {
+          return reply && reply.data && reply.data.final === true;
+        });
+        assert.equal(finales.length >= 1, true, 'reponse finale publiee');
+        assert.equal(finales[finales.length - 1].data.job.phase, 'done', 'phase finale : done');
+        return stack.service.profiles.list();
+      })
+      .then(function (profils) {
+        assert.equal(profils.length, 1, 'profil unique');
+      });
+  });
+});
+
+/**
+ * Un échec d'import doit porter sa **cause réelle** : la réponse finale annonçait
+ * « internal/unexpected — import interrompu avant la bascule », ce qui ne permettait aucune action.
+ */
+harness.describe('Echec d import : la cause reelle est transmise', function () {
+  harness.it('refus du fournisseur pendant l import : code auth/* conserve', function () {
+    var stack = makeStack({ failure: { action: 'get_live_streams', status: 401, times: 50 } });
+    return addProfile(stack)
+      .then(function () {
+        // pas d'`importContent` ici : cet import n'atteint jamais la phase `done`, il faut donc
+        // attendre la **réponse d'échec** publiée sur l'abonnement.
+        return stack.bus.invoke(
+          'importPlaylist',
+          {
+            profileId: 'p1',
+            kind: 'xtream',
+            contentType: 'live',
+            source: { url: PORTAL_URL, credentials: credentials(stack) },
+            consent: { persistSecrets: false }
+          },
+          { subscribed: true }
+        );
+      })
+      .then(function () {
+        return waitFor(
+          function () {
+            return repliesOf(stack.bus, 'importPlaylist').some(function (reply) {
+              return reply && reply.returnValue === false && reply.error;
+            });
+          },
+          20000
+        );
+      })
+      .then(function () {
+        var refus = repliesOf(stack.bus, 'importPlaylist').filter(function (reply) {
+          return reply && reply.returnValue === false && reply.error;
+        });
+        assert.equal(refus.length >= 1, true, 'echec publie sur l abonnement');
+        var erreur = refus[refus.length - 1].error;
+        assert.equal(erreur.code !== 'internal/unexpected', true, 'cause reelle et non generique : ' + erreur.code);
+        assert.ok(
+          erreur.code.indexOf('auth/') === 0 || erreur.code.indexOf('network/') === 0 || erreur.code === 'security/insecureScheme',
+          'code exploitable : ' + erreur.code
+        );
+        // la cause figure aussi dans l'état du job, pour un appelant qui reprend après coup
+        var jobs = repliesOf(stack.bus, 'importPlaylist').filter(function (reply) {
+          return reply && reply.data && reply.data.job && reply.data.job.phase === 'failed';
+        });
+        assert.equal(jobs.length >= 1, true, 'job en phase failed');
       });
   });
 });

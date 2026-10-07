@@ -63,7 +63,33 @@
     return lignes.join('\n');
   }
 
-  var api = { texteErreur: texteErreur, texteReponse: texteReponse };
+  /**
+   * Une réponse (verdict de `testProfile` ou erreur de commande) demande-t-elle l'autorisation
+   * « HTTP clair » ? Renvoie l'hôte à confirmer, ou `null`.
+   *
+   * Le service répond `security/insecureScheme` avec `hint: 'hote:<hôte>'` — c'est ce `hint` qui
+   * permet à la page de proposer la confirmation en un clic au lieu d'afficher un code obscur
+   * (l'utilisateur voyait `security/insecurescheme` sans savoir quoi en faire, en phase 0A).
+   */
+  function hoteACOnfirmer(reponse) {
+    var listes = [];
+    if (estObjet(reponse)) {
+      if (estObjet(reponse.error)) listes.push(reponse.error);
+      if (estObjet(reponse.data) && Array.isArray(reponse.data.errors)) listes = listes.concat(reponse.data.errors);
+    }
+    for (var index = 0; index < listes.length; index += 1) {
+      var entree = listes[index];
+      if (!entree || String(entree.code || '').toLowerCase() !== 'security/insecurescheme') continue;
+      var correspondance = /hote:([^\s]+)/i.exec(String(entree.hint || ''));
+      if (correspondance) return correspondance[1];
+      var dansMessage = /hote:([^\s]+)/i.exec(String(entree.message || ''));
+      if (dansMessage) return dansMessage[1];
+      return '';
+    }
+    return null;
+  }
+
+  var api = { texteErreur: texteErreur, texteReponse: texteReponse, hoteACOnfirmer: hoteACOnfirmer };
 
   if (racine) {
     racine.iptvFormat = api;

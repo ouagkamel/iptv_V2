@@ -17,6 +17,8 @@
 
 var SERVICE = 'luna://com.ouagkamel.app.iptvplayer.service';
 var derniereJobId = null;
+/** Dernière action de l'utilisateur, pour la relancer après une autorisation (§8.2). */
+var relancerDerniereAction = function () { journal('aucune action a relancer', 'ko'); };
 
 function el(id) {
   return document.getElementById(id);
@@ -143,7 +145,7 @@ function environnement() {
     // le simulateur webOS n'enregistre pas les services déclarés par un .ipk : il faut les ajouter
     // à la main (File > Add Service). Le reconnaître évite de chercher un défaut côté paquet.
     simulateur: /simulator|emulator/i.test(navigator.userAgent),
-    versionPage: '0.1.5'
+    versionPage: '0.1.6'
   };
 }
 
@@ -163,14 +165,25 @@ function afficherEnvironnement(details) {
 }
 
 /** Bannière rouge : cause lue dans le message brut du bus, plus les gestes à faire sur la TV. */
-function banniere(titre, texte, gestes) {
+function banniere(titre, texte, gestes, action) {
   el('banniere-titre').textContent = titre;
   var html = '<div style="font-size:15px;line-height:1.5">' + texte + '</div>';
   if (gestes && gestes.length) {
     html += '<ol>' + gestes.map(function (g) { return '<li>' + g + '</li>'; }).join('') + '</ol>';
   }
+  if (action && action.libelle) {
+    // bouton d'action : « Relancer » après avoir confirmé une autorisation, par exemple
+    html += '<div class="rang" style="margin-top:10px"><button id="banniere-action" class="principal">' +
+      action.libelle + '</button></div>';
+  }
   el('banniere-texte').innerHTML = html;
   el('banniere').className = 'banniere visible';
+  if (action && action.libelle) {
+    el('banniere-action').onclick = function () {
+      masquerBanniere();
+      action.action();
+    };
+  }
 }
 
 function masquerBanniere() {
@@ -265,6 +278,49 @@ function temoinBus() {
   });
 }
 
+/** Choix mémorisés par hôte : éviter de redemander la même autorisation à chaque essai. */
+function cleHote(hote) {
+  return 'iptv.httpclair.' + String(hote || '').toLowerCase();
+}
+
+function hoteDeURL(url) {
+  var correspondance = /^https?:\/\/([^/:]+)/i.exec(String(url || ''));
+  return correspondance ? correspondance[1].toLowerCase() : '';
+}
+
+/**
+ * Consentements transmis au service :
+ *  - `persistSecrets` : la case « Mémoriser ce profil sur ce téléviseur » (§8.2) ;
+ *  - `insecureHttp` : l'autorisation explicite d'un portail en HTTP clair (§8.2), **nécessaire**
+ *    pour que le service accepte l'hôte — sans elle, tout appel répond `security/insecureScheme`.
+ */
+function consentementDuFormulaire() {
+  return {
+    persistSecrets: el('memoriser').checked,
+    insecureHttp: el('httpclair').checked
+  };
+}
+
+/** Reconnaît la demande d'autorisation HTTP clair et coche la case (l'utilisateur reste libre). */
+function traiterConsentement(reponse) {
+  var hote = window.iptvFormat ? window.iptvFormat.hoteACOnfirmer(reponse) : null;
+  if (hote === null) return false;
+  if (!el('httpclair').checked) el('httpclair').checked = true;
+  if (hote) {
+    try { window.localStorage.setItem(cleHote(hote), '1'); } catch (_erreur) { /* stockage refusé : sans conséquence */ }
+  }
+  banniere(
+    'Portail en HTTP clair : autorisation requise',
+    'Ce portail (' + (hote ? '<b>' + hote + '</b>' : 'cet hôte') + ') est servi en <b>HTTP</b> : les identifiants et ' +
+      'les flux circulent <b>sans chiffrement</b> sur le réseau. La case <i>« Portail en HTTP clair : j\'autorise »</i> ' +
+      'vient d\'être cochée : relancez l\'action pour confirmer. Le service enregistre cette autorisation ' +
+      '<b>une fois par hôte et par profil</b>.',
+    ['Si le portail propose HTTPS, préférez-le : l\'autorisation n\'est alors plus nécessaire.'],
+    { libelle: 'Relancer', action: relancerDerniereAction }
+  );
+  return true;
+}
+
 function identifiants() {
   return {
     username: el('utilisateur').value,
@@ -291,6 +347,12 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // L'hôte déjà autorisé lors d'un essai précédent est proposé coché : la confirmation reste visible.
+  var hotePrecedent = hoteDeURL(el('url').value);
+  try {
+    if (hotePrecedent && window.localStorage.getItem(cleHote(hotePrecedent)) === '1') el('httpclair').checked = true;
+  } catch (_erreur) { /* stockage refusé : sans conséquence */ }
+
   el('btn-temoin').onclick = function () { temoinBus(); };
   el('btn-environnement').onclick = function () {
     afficherEnvironnement(null);
@@ -300,21 +362,31 @@ document.addEventListener('DOMContentLoaded', function () {
   controleInitial();
 
   el('btn-test').onclick = function () {
+    relancerDerniereAction = function () { el('btn-test').onclick(); };
     var profil = profilDepuisFormulaire();
     var secrets = identifiants();
     journal('testProfile ' + profil.baseUrl);
     appeler('testProfile', {
+      profileId: profil.profileId,
       kind: 'xtream',
       baseUrl: profil.baseUrl,
       username: secrets.username,
       password: secrets.password,
-      lanAllowed: false
+      lanAllowed: false,
+      consent: consentementDuFormulaire()
     })
-      .then(function (reponse) { afficher('testProfile', reponse); })
-      .catch(function (erreur) { afficherErreur('testProfile', erreur); });
+      .then(function (reponse) {
+        afficher('testProfile', reponse);
+        traiterConsentement(reponse);
+      })
+      .catch(function (erreur) {
+        afficherErreur('testProfile', erreur);
+        traiterConsentement(erreur);
+      });
   };
 
   el('btn-import').onclick = function () {
+    relancerDerniereAction = function () { el('btn-import').onclick(); };
     var profil = profilDepuisFormulaire();
     var secrets = identifiants();
     journal('importPlaylist ' + profil.profileId);
@@ -323,7 +395,7 @@ document.addEventListener('DOMContentLoaded', function () {
       kind: 'xtream',
       contentType: el('contenu').value,
       source: { url: profil.baseUrl, credentials: secrets },
-      consent: { persistSecrets: el('memoriser').checked }
+      consent: consentementDuFormulaire()
     }, {
       abonnement: true,
       aChaqueReponse: function (reponse) {
@@ -335,7 +407,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (reponse && reponse.data && reponse.data.jobId) derniereJobId = reponse.data.jobId;
         afficher('importPlaylist (demarrage)', reponse);
       })
-      .catch(function (erreur) { afficherErreur('importPlaylist', erreur); });
+      .catch(function (erreur) {
+        afficherErreur('importPlaylist', erreur);
+        traiterConsentement(erreur);
+      });
   };
 
   el('btn-annuler').onclick = function () {

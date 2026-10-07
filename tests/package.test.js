@@ -468,3 +468,64 @@ harness.describe('Affichage des erreurs LS2 : jamais [object Object]', function 
     assert.ok(echec.indexOf('auth/invalidCredentials — identifiants refuses') !== -1, 'erreur mise en texte');
   });
 });
+
+/**
+ * Le portail de contrôle est en HTTP clair : la page doit **transmettre l'autorisation** et savoir
+ * reconnaître la demande du service. Sans cela, l'utilisateur voyait `security/insecurescheme` sans
+ * aucune action possible (constaté en phase 0A), puis un échec d'import sans rapport apparent.
+ */
+harness.describe('Autorisation HTTP clair : detection et envoi depuis la page', function () {
+  harness.it('l hote a confirmer est extrait du verdict comme de l erreur de commande', function () {
+    var verdict = {
+      returnValue: true,
+      data: { ok: false, errors: [{ code: 'security/insecureScheme', message: 'portail en HTTP clair', retryable: false, hint: 'hote:kdfgh.com' }] }
+    };
+    assert.equal(formatLib.hoteACOnfirmer(verdict), 'kdfgh.com', 'depuis le verdict');
+    var erreur = {
+      returnValue: false,
+      error: { code: 'security/insecureScheme', message: 'source en HTTP clair', retryable: false, hint: 'hote:kdfgh.com' }
+    };
+    assert.equal(formatLib.hoteACOnfirmer(erreur), 'kdfgh.com', 'depuis l erreur de commande');
+    assert.equal(formatLib.hoteACOnfirmer({ returnValue: true, data: { ok: true, errors: [] } }), null, 'aucune demande');
+    assert.equal(
+      formatLib.hoteACOnfirmer({ returnValue: false, error: { code: 'SECURITY/InsecureScheme', message: 'x', hint: 'hote:A.Example' } }),
+      'A.Example',
+      'code insensible a la casse'
+    );
+  });
+
+  harness.it('la page porte la case d autorisation et l envoie au service', function () {
+    var html = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'index.html'), 'utf8');
+    assert.ok(html.indexOf('id="httpclair"') !== -1, 'case d autorisation HTTP clair presente');
+    assert.ok(html.indexOf('id="httpclair"') < html.indexOf('</form>') || html.indexOf('id="httpclair"') < html.indexOf('<script'), 'case dans le formulaire');
+
+    var page = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'diagnostic.js'), 'utf8');
+    assert.ok(page.indexOf('insecureHttp') !== -1, 'consentement insecureHttp transmis');
+    assert.ok(page.indexOf('hoteACOnfirmer') !== -1, 'reconnaissance de la demande du service');
+    assert.ok(page.indexOf('cleHote') !== -1, 'choix memorise par hote');
+    assert.ok(page.indexOf("testProfile") !== -1 && page.indexOf('consent: consentementDuFormulaire()') !== -1, 'testProfile porte le consentement');
+  });
+
+  harness.it('le service refuse un import non confirme, avec l hote', function () {
+    var source = fs.readFileSync(
+      path.join(__dirname, '..', 'src', 'service', 'ls2', 'service.ts'),
+      'utf8'
+    );
+    assert.ok(
+      source.indexOf("'security/insecureScheme',\n        'source en HTTP clair") !== -1 ||
+        source.indexOf('security/insecureScheme') !== -1,
+      'controle prealable du schema dans le service'
+    );
+    // La réponse d'échec doit transporter la cause réelle : `outcome.error` est une **forme
+    // sérialisée** (pas une instance), donc elle est reconstituée en AppError — et le message
+    // générique ne sert que de repli.
+    assert.ok(
+      source.indexOf('outcome.error as { code?: string') !== -1,
+      'la forme d erreur du job est relue, pas ignoree'
+    );
+    assert.ok(
+      source.indexOf('new AppError(brut.code as ErrorCode') !== -1,
+      'cause reelle reconstituee pour la reponse finale'
+    );
+  });
+});

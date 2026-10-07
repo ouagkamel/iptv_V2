@@ -246,13 +246,28 @@ export class XtreamProvider {
       }
       const host = hostOf(this.baseUrl());
       if (host && this.session.acceptedHosts && this.session.acceptedHosts.indexOf(host) === -1 && this.baseUrl().indexOf('http://') === 0) {
+        // Erreur **et** avertissement : l'erreur porte le code attendu par l'appelant (§8.2) et son
+        // `hint` nomme l'hôte à confirmer, ce qui permet à la page de proposer la confirmation en un clic.
+        result.errors.push({
+          code: 'security/insecureScheme',
+          message: 'portail en HTTP clair : avertissement a confirmer une fois pour cet hote',
+          retryable: false,
+          hint: 'hote:' + host
+        });
         result.warnings.push('portail en HTTP clair : avertissement a confirmer une fois pour cet hote');
       }
       result.ok = result.errors.length === 0;
       return result;
     } catch (error) {
       const appError = asAppError(error);
-      result.errors.push({ code: appError.code, message: appError.message, retryable: appError.retryable });
+      // Le `hint` accompagne l'erreur : c'est lui qui permet à la page de proposer l'action
+      // (confirmer l'hôte en HTTP clair, ressaisir les identifiants) sans deviner.
+      result.errors.push({
+        code: appError.code,
+        message: appError.message,
+        retryable: appError.retryable,
+        ...(appError.hint ? { hint: appError.hint } : {})
+      });
       if (appError.hint) result.warnings.push(appError.hint);
       return result;
     }

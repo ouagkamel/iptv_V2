@@ -4,12 +4,13 @@
 /**
  * Publication des livraisons sur GitHub — **outil de maintenance**, jamais exécuté par la CI.
  *
- *   GITHUB_TOKEN_FILE=~/uploads/ghtok.txt node tools/publish-release.js create v0.1.4-phase0a 0.1.4 docs/RELEASE-0.1.4.md
+ *   node tools/publish-release.js create v0.1.4-phase0a 0.1.4 docs/RELEASE-0.1.4.md
  *   node tools/publish-release.js annotate v0.1.3-phase0a mention.txt
  *
- * Le jeton n'est **jamais** écrit dans le dépôt : il est lu dans `GITHUB_TOKEN` ou dans le fichier
- * désigné par `GITHUB_TOKEN_FILE` (par défaut `~/uploads/ghtok.txt`, hors dépôt), et rien de ce que
- * l'outil affiche ne le contient.
+ * Le jeton n'est **jamais** écrit dans le dépôt : il est lu dans `GITHUB_TOKEN`, ou dans le fichier
+ * désigné par `GITHUB_TOKEN_FILE`, ou dans le premier des fichiers usuels présents sous
+ * `~/uploads/` (`token.txt`, `ghtok.txt`) — tous hors dépôt. Rien de ce que l'outil affiche ne le
+ * contient, et aucune commande ne l'écrit sur disque.
  *
  * Pièces jointes d'une version `X` (celles qui existent) : l'`.ipk`, l'archive `dist/X.zip`, le pack
  * `dist/X-simulateur.zip` et `dist/X/SHA256SUMS.txt`.
@@ -30,12 +31,15 @@ function lire(chemin) {
 
 function jeton() {
   if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN.trim();
-  var fichier = process.env.GITHUB_TOKEN_FILE || path.join(os.homedir(), 'uploads', 'ghtok.txt');
-  if (!fs.existsSync(fichier)) {
-    console.error('Jeton GitHub introuvable : renseigner GITHUB_TOKEN ou GITHUB_TOKEN_FILE.');
-    process.exit(2);
+  var candidats = [];
+  if (process.env.GITHUB_TOKEN_FILE) candidats.push(process.env.GITHUB_TOKEN_FILE);
+  candidats.push(path.join(os.homedir(), 'uploads', 'token.txt'));
+  candidats.push(path.join(os.homedir(), 'uploads', 'ghtok.txt'));
+  for (var index = 0; index < candidats.length; index += 1) {
+    if (fs.existsSync(candidats[index])) return fs.readFileSync(candidats[index], 'utf8').trim();
   }
-  return fs.readFileSync(fichier, 'utf8').trim();
+  console.error('Jeton GitHub introuvable : renseigner GITHUB_TOKEN ou GITHUB_TOKEN_FILE.');
+  process.exit(2);
 }
 
 /** Un appel d'API : corps JSON facultatif, réponse analysée. */

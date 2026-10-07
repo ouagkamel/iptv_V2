@@ -344,6 +344,18 @@ export class IptvService {
     const busy = this.busyProfiles[profileId];
     if (busy) throw new AppError('catalog/busy', 'une operation est deja en cours pour ce profil', 'attendre ou annuler l operation en cours');
 
+    // Contrôle préalable du schéma : une source en HTTP clair non confirmée est refusée **tout de
+    // suite**, avec l'hôte à confirmer, au lieu de lancer un job qui échouera (« import interrompu »).
+    const hotesAcceptes = await this.acceptedHostsFor(profileId);
+    const hoteSource = hostOf(baseUrl);
+    if (baseUrl.indexOf('http://') === 0 && hoteSource && hotesAcceptes.indexOf(hoteSource) === -1) {
+      throw new AppError(
+        'security/insecureScheme',
+        'source en HTTP clair : avertissement a confirmer pour ce profil et cet hote',
+        'hote:' + hoteSource
+      );
+    }
+
     // Contrôle préalable : un compte inactif, expiré ou refusé doit être **dit** tout de suite.
     // Sans lui, chaque appel fournisseur échoue et l'erreur affichée parle de réseau, ce qui envoie
     // l'utilisateur sur une fausse piste (constaté en phase 0A avec un abonnement de test expiré).
@@ -463,11 +475,17 @@ export class IptvService {
       );
       delete this.runningJobs[currentJob.jobId];
       if (outcome.outcome === 'failed') {
-        // un échec ne touche jamais l'index élu (§2.4) : la réponse le dit sans exposer de détail
-        this.publish(
-          input.profileId,
-          ls2Fail(new AppError('internal/unexpected', 'import interrompu avant la bascule'), input.indexVersion)
-        );
+        // Un échec ne touche jamais l'index élu (§2.4). La cause **réelle** est transmise telle
+        // quelle : un « internal/unexpected » générique masquait le code utile (constaté en phase 0A :
+        // un import refusé pour HTTP clair s'affichait comme une panne interne indiagnosticable).
+        // `outcome.error` est la **forme sérialisée** de l'erreur (`toShape`), pas une instance :
+        // on la reconstitue pour conserver code, message et indication.
+        const brut = outcome.error as { code?: string; message?: string; hint?: string } | undefined;
+        const cause =
+          brut && typeof brut.code === 'string' && brut.code !== ''
+            ? new AppError(brut.code as ErrorCode, brut.message || 'import interrompu avant la bascule', brut.hint)
+            : new AppError('internal/unexpected', 'import interrompu avant la bascule');
+        this.publish(input.profileId, ls2Fail(cause, input.indexVersion));
         return;
       }
       if (outcome.outcome !== 'done') return;

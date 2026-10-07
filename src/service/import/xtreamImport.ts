@@ -61,7 +61,8 @@ export interface XtreamImportOutcome {
   skipped: number;
   bytesRead: number;
   warnings: string[];
-  error?: { code: string; message: string; retryable: boolean };
+  /** forme sérialisée (`AppErrorShape`) : code, message, réessayable et indication éventuelle */
+  error?: { code: string; message: string; retryable: boolean; hint?: string };
 }
 
 const DEFAULT_CHECKPOINT_ENTRIES = 2000;

@@ -210,7 +210,8 @@ export interface TestResult {
     formats?: string[];
   };
   warnings: string[];
-  errors: Array<{ code: string; message: string; retryable: boolean }>;
+  /** `hint` porte l'information actionnable (`hote:<hôte>`, identifiants à ressaisir…), jamais un secret. */
+  errors: Array<{ code: string; message: string; retryable: boolean; hint?: string }>;
 }
 
 export interface RefreshOptions {

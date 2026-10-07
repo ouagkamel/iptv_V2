@@ -1,6 +1,6 @@
 {
   "name": "iptv-webos-v2",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "Lecteur IPTV pour LG webOS 6+ — application Empaquetée (Enact 3.4.9) + service JS (Node 8.12)",
   "license": "UNLICENSED",
