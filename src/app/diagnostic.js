@@ -145,7 +145,7 @@ function environnement() {
     // le simulateur webOS n'enregistre pas les services déclarés par un .ipk : il faut les ajouter
     // à la main (File > Add Service). Le reconnaître évite de chercher un défaut côté paquet.
     simulateur: /simulator|emulator/i.test(navigator.userAgent),
-    versionPage: '0.1.12'
+    versionPage: '0.1.13'
   };
 }
 
@@ -219,17 +219,32 @@ function controleInitial() {
         );
       }
       if (db && db.ok === false) {
-        banniere(
-          'Base locale (DB8) inaccessible',
-          'Le service répond, mais la base DB8 ne l’est pas : <code>' + db.erreur + '</code>. Sans elle, ' +
-          'les profils, les favoris et l’état des imports ne peuvent pas être enregistrés.',
-          [
-            'Sur simulateur : DB8 fait partie de l’image système ; redémarrer le simulateur, puis ' +
-            'relancer l’application.',
-            'Sur téléviseur : relever dans les journaux LS2 le nom d’ACG refusée et le consigner dans ' +
-            'docs/PHASE-0.md §0A.'
-          ]
+        var cause = String(db.erreur || '');
+        var nomService = db.service ? String(db.service) : '(aucun)';
+        var conseils = [
+          'Nom de service de base essayé : <code>' + nomService + '</code>. Le client essaie ' +
+            '<code>com.palm.db</code> (référence LG, téléviseurs et simulateur) puis ' +
+            '<code>com.webos.service.db</code> (webOS OSE).'
+        ];
+        if (/service does not exist/i.test(cause)) {
+          conseils.push(
+            'Aucun de ces noms ne répond : relever la liste des services actifs (sur TV : ' +
+              '<code>ls-monitor -l</code>) et consigner les noms contenant « db » dans ' +
+              '<code>docs/PHASE-0.md</code> §0A.'
+          );
+        }
+        if (/permission denied/i.test(cause)) {
+          conseils.push(
+            'Refus d’ACG : l’application doit déclarer <code>database.operation</code> et ' +
+              '<code>database.management</code> dans <code>requiredPermissions</code> (appinfo.json).'
+          );
+        }
+        conseils.push(
+          'Sur simulateur : la base fait partie de l’image ; si elle ne répond toujours pas, ' +
+            '<em>Action → Database Reset</em> puis redémarrage du simulateur.'
         );
+        conseils.push('Consigner le message exact dans <code>docs/PHASE-0.md</code> §0A.');
+        banniere('Base locale (DB8) injoignable', 'Le service répond, mais la base DB8 ne l’est pas : <code>' + db.erreur + '</code>. Sans elle, les profils, les favoris et l’état des imports ne peuvent pas être enregistrés.', conseils);
       }
       return true;
     })

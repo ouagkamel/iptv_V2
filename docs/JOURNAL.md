@@ -1,5 +1,41 @@
 # Journal d'exécution
 
+## 2026-10-08 — Base DB8 injoignable : bon nom de service et ACG déclarée (0.1.13)
+
+**Ce qui a été observé** (simulateur, paquet 0.1.12, page de diagnostic) : cette fois la cause est
+apparue telle quelle, sans bandeau générique —
+
+```
+"db": { "ok": false,
+        "erreur": "appel LS2 refuse (-1) : Service does not exist: com.webos.service.db",
+        "sonde": "echec (ecriture/relecture du temoin) : … Service does not exist: com.webos.service.db" }
+```
+
+C'est le premier retour où le diagnostic **nomme** ce qui manque : le service de base invoqué
+n'existe pas sur la plateforme testée. Trois défauts distincts se cachaient derrière.
+
+| Réf. | Constat | Correctif |
+|---|---|---|
+| **D-42a** | Un seul nom de service était appelé (`com.webos.service.db`, celui de webOS OSE) ; la documentation LG des téléviseurs — référence « Database » et exemples officiels DB8 owner/user — utilise `luna://com.palm.db`, y compris sur simulateur | `DB_SERVICES = ['com.palm.db', 'com.webos.service.db']` : essais dans l'ordre au premier appel, nom retenu pour la session ; `Service does not exist` déclenche l'essai suivant, toute autre erreur remonte telle quelle |
+| **D-42b** | La tolérance « le kind existe déjà » (D-41c) cherchait `exist` — que contient aussi **« Service does not exist »** : `ensureKind` se croyait toléré et l'échec se déplaçait sur l'écriture, sans dire que le service manquait | `kindDejaEnregistre()` : `already exists` ou `kind … exist` seulement. « Service does not exist » redevient une erreur franche, avec le nom essayé |
+| **D-42c** | `appinfo.json` ne déclarait que `time.query` ; l'accès à la base est soumis à ACG (`database.operation`, `database.management`) : un appareil qui les applique répond `-3963 db: permission denied` | Les deux ACG sont déclarées, chacune justifiée par les appels réels du code (`put`/`find`/`del`/`merge` ; `putKind`) |
+| **D-42d** | Le diagnostic ne disait pas **quel** nom de service avait été essayé : impossible de distinguer « base absente » de « mauvais nom » | `db.service` (retenu ou dernier essayé) exposé par `diagnostics` ; bannière réécrite : nom essayé, distinction service inexistant / ACG refusée, renvoi à §0A |
+
+**Sources consultées** : référence LG « Database » (`Service URI - luna://com.palm.db`, table de
+compatibilité « Database : Yes » sur simulateur) ; dépôt officiel d'exemples `webOS-TV-app-samples/DB8`
+(owner/user) qui appellent `luna://com.palm.db` ; référence `com.webos.service.db` de webOS OSE pour
+les ACG (`database.operation`, `database.management`, `database.profiling`).
+
+**Tests ajoutés** (`tests/db8.test.js`, 6 cas) : la TV qui ne connaît que `com.palm.db` (premier appel
+sur ce nom, nom retenu) ; repli `com.webos.service.db` ; aucun nom ne répond → erreur qui conserve la
+cause et nomme l'essai ; `kindDejaEnregistre` : « Service does not exist » ≠ « already exists » ;
+base injoignable → écriture refusée, sonde en échec avec le nom du service ; le diagnostic annonce le
+service retenu.
+
+**Contrôles** : `npm test` → **226 tests, 0 échec** (Node 20 **et** Node 8.12) ; `lint:node812`,
+`check:deps`, `typecheck` OK ; banc headless sur le paquet public → `verdict OK` ; ipk « publiable » ;
+0 identifiant dans l'ipk et les deux archives.
+
 ## 2026-10-08 — « création du kind DB8 refusée » : la réponse du hub était lue au mauvais niveau (0.1.12)
 
 **Ce qui a été observé** (simulateur, paquet 0.1.11, page de diagnostic) : `db.ok: false`,

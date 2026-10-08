@@ -767,6 +767,9 @@ export class IptvService {
       const sondage = await this.db.sonde();
       db = Object.assign({}, db, {
         sonde: sondage.ok ? 'ok (' + sondage.etape + ')' : 'echec (' + sondage.etape + ') : ' + String(sondage.message || ''),
+        // Nom du service DB8 retenu (`com.palm.db` sur televiseur, `com.webos.service.db` ailleurs) :
+        // sans lui, un « Service does not exist » ne dit pas quel nom a ete essaye (D-42).
+        service: sondage.service || this.db.serviceDbPourDiagnostic() || '(aucun)',
         kinds: sondage.kinds
       });
     } catch (error) {

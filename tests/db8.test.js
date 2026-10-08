@@ -565,3 +565,127 @@ harness.describe('Pont LS2 : la reponse du hub est lue dans `message.payload` (D
       });
   });
 });
+
+harness.describe('Nom du service de base : `com.palm.db` sur televiseur, repli webOS OSE (D-42)', function () {
+  /** Faux hub qui ne connait qu'une partie des noms de service. */
+  function hubParNom(connus) {
+    var bus = new db8Lib.FakeDb8Bus();
+    return {
+      bus: bus,
+      appels: [],
+      call: function (uri, params) {
+        this.appels.push(uri);
+        var nom = /^luna:\/\/([^/]+)\//.exec(uri)[1];
+        if (connus.indexOf(nom) === -1) {
+          return Promise.reject(
+            new Error('appel LS2 refuse (-1) : Service does not exist: ' + nom)
+          );
+        }
+        return bus.call(uri, params);
+      }
+    };
+  }
+
+  harness.it('la TV ne connait que com.palm.db : le client l essaie et le retient', function () {
+    var hub = hubParNom(['com.palm.db']);
+    var db = new db8Lib.Db8Client({ call: hub.call.bind(hub), appId: db8Lib.APP_ID });
+    return db
+      .put('profiles', [{ id: 'p1', name: 'Maison' }])
+      .then(function () {
+        assert.equal(db.serviceDb(), 'com.palm.db', 'nom retenu : ' + db.serviceDb());
+        return db.find('profiles', { id: 'p1' });
+      })
+      .then(function (lignes) {
+        assert.equal(lignes.length, 1, 'ligne relue');
+        var urnes = hub.appels.filter(function (uri) {
+          return uri.indexOf('/putKind') !== -1;
+        });
+        assert.ok(urnes.length > 0, 'putKind emis');
+        // le premier essai a porte sur com.palm.db : aucun appel perdu sur un nom inconnu de la TV
+        assert.equal(urnes[0].indexOf('luna://com.palm.db/'), 0, 'premier appel : ' + urnes[0]);
+      });
+  });
+
+  harness.it('une image webOS OSE (com.webos.service.db) reste prise en charge', function () {
+    var hub = hubParNom(['com.webos.service.db']);
+    var db = new db8Lib.Db8Client({ call: hub.call.bind(hub), appId: db8Lib.APP_ID });
+    return db.put('consents', [{ profileId: 'p1', kind: 'insecureHttp' }]).then(function () {
+      assert.equal(db.serviceDb(), 'com.webos.service.db', 'repli retenu');
+    });
+  });
+
+  harness.it('aucun nom ne repond : l erreur nomme ce qui a ete essaye', function () {
+    var hub = hubParNom([]);
+    var db = new db8Lib.Db8Client({ call: hub.call.bind(hub), appId: db8Lib.APP_ID });
+    return db.find('profiles', { id: 'p1' }).then(
+      function () {
+        throw new Error('une base injoignable a ete acceptee');
+      },
+      function (erreur) {
+        assert.ok(/Service does not exist/.test(erreur.message), 'cause conservee : ' + erreur.message);
+        // le diagnostic doit pouvoir dire ce qui a ete essaye, meme sans nom retenu
+        assert.ok(db.serviceDbPourDiagnostic(), 'nom essaye rapporte : ' + db.serviceDbPourDiagnostic());
+      }
+    );
+  });
+
+  harness.it('« Service does not exist » n est pas « le kind existe deja »', function () {
+    // La phrase contient « exist » : la tolerance du putKind ne doit pas l avaler, sinon une base
+    // injoignable passe pour une base prete et l import echoue plus loin, sans cause (D-42).
+    assert.equal(
+      db8Lib.kindDejaEnregistre('appel LS2 refuse (-1) : Service does not exist: com.webos.service.db'),
+      false,
+      'service absent : tolerance refusee'
+    );
+    assert.equal(
+      db8Lib.kindDejaEnregistre("db: kind already exists: 'x:db:y:2'"),
+      true,
+      'kind deja enregistre : tolerance acceptee'
+    );
+    assert.equal(
+      db8Lib.kindDejaEnregistre('db: kind exists'),
+      true,
+      'autre formulation admise'
+    );
+    assert.equal(db8Lib.serviceIntrouvable('Service does not exist: x'), true, 'nom inconnu reconnu');
+    assert.equal(db8Lib.serviceIntrouvable('db: no index for query'), false, 'erreur de base : pas un nom');
+  });
+
+  harness.it('base injoignable : l ecriture echoue, la sonde le dit et nomme le service', function () {
+    var hub = hubParNom([]);
+    var db = new db8Lib.Db8Client({ call: hub.call.bind(hub), appId: db8Lib.APP_ID });
+    var cles = reposLib.createMasterKeyRepository(db);
+    return cles
+      .ensure('p1')
+      .then(
+        function () {
+          throw new Error('cle ecrite alors que la base est injoignable');
+        },
+        function (erreur) {
+          assert.ok(/Service does not exist/.test(erreur.message), 'cause reelle : ' + erreur.message);
+          assert.ok(
+            erreur.message.indexOf('creation du kind DB8 refusee') === -1,
+            'le message de refus de kind ne doit pas masquer un service absent'
+          );
+        }
+      )
+      .then(function () {
+        return db.sonde();
+      })
+      .then(function (rapport) {
+        assert.equal(rapport.ok, false, 'sonde en echec');
+        assert.ok(rapport.message && rapport.message.indexOf('Service does not exist') !== -1, 'cause dans la sonde');
+        assert.ok(rapport.service, 'nom de service rapporte : ' + rapport.service);
+      });
+  });
+
+  harness.it('le diagnostic annonce le service de base retenu', function () {
+    var stack = makeStack();
+    return stack.bus.invoke('diagnostics', {}).then(function (reponses) {
+      var db = reponses[0].data.db;
+      assert.equal(db.ok, true, 'base jointe');
+      assert.ok(typeof db.service === 'string' && db.service.length > 0, 'service nomme : ' + db.service);
+      assert.ok(db.sonde.indexOf('ok') === 0, 'sonde concluante');
+    });
+  });
+});

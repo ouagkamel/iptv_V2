@@ -16,7 +16,33 @@
 import { AppError } from '../../contracts/errors';
 
 export const APP_ID = 'com.ouagkamel.app.iptvplayer';
-export const DB_SERVICE = 'com.webos.service.db';
+
+/**
+ * Noms possibles du service de base DB8, **dans l'ordre d'essai**.
+ *
+ * LG documente la base des televiseurs sous `luna://com.palm.db` (reference « Database » et exemples
+ * officiels, simulateur compris) ; les images webOS OSE exposent le meme service sous
+ * `com.webos.service.db`. Un nom qui n'existe pas sur la plateforme fait repondre au bus
+ * « Service does not exist » (-1) : ce n'est **pas** une base absente, c'est un nom a essayer
+ * autrement. Le client essaie ces noms au premier appel et retient celui qui repond (D-42).
+ */
+export const DB_SERVICES: string[] = ['com.palm.db', 'com.webos.service.db'];
+export const DB_SERVICE = DB_SERVICES[0];
+
+/** Vrai si l'echec dit que le **service** n'existe pas (nom a reessayer), et non la base. */
+export function serviceIntrouvable(erreur: unknown): boolean {
+  return /service\s+does\s+not\s+exist|no\s+such\s+service/i.test(texteDe(erreur));
+}
+
+/**
+ * Vrai si un refus de `putKind` vient bien d'un kind **deja enregistre** (mise a jour refusee par
+ * certaines versions) — et non d'un service absent. La nuance vaut son prix : « Service does not
+ * exist » contient « exist » ; l'avaler ferait passer une base injoignable pour une base prete (D-42).
+ */
+export function kindDejaEnregistre(message: string): boolean {
+  const texte = message.toLowerCase();
+  return /already\s+exists/.test(texte) || /kind[^.]{0,40}exist/.test(texte);
+}
 
 /**
  * Kinds versionnés : le numéro change si le schéma change (migration explicite, jamais silencieuse).
@@ -148,6 +174,8 @@ export interface SondageDb8 {
   ok: boolean;
   etape: string;
   message?: string;
+  /** Nom du service DB8 effectivement retenu (`com.palm.db` sur televiseur). */
+  service: string;
   kinds: Array<{kind: string; indexe: boolean; champs: string[]}>;
 }
 
@@ -155,10 +183,54 @@ export class Db8Client {
   private readonly call: Ls2Caller;
   /** Cache des kinds créés pendant l'exécution : évite un `putKind` à chaque écriture. */
   private readonly knownKinds: Record<string, boolean> = {};
+  /** Service DB8 retenu apres le premier appel reussi (`null` tant qu'aucun n'a abouti). */
+  private service: string | null = null;
+  /** Dernier nom de service essaye : sert au diagnostic quand **aucun** nom ne repond. */
+  private dernierNom: string | null = null;
 
   constructor(options: Db8ClientOptions) {
     this.call = options.call;
     void options.appId;
+  }
+
+  /** Nom du service DB8 retenu (`null` tant qu'aucun appel n'a abouti). */
+  serviceDb(): string | null {
+    return this.service;
+  }
+
+  /** Nom de service a afficher au diagnostic : le nom retenu, sinon le dernier essaye. */
+  serviceDbPourDiagnostic(): string {
+    return this.service || this.dernierNom || '';
+  }
+
+  /**
+   * Un appel a DB8, nom de service compris. Au premier appel — ou apres un `Service does not exist`
+   * — les noms de `DB_SERVICES` sont essayes dans l'ordre ; le premier qui repond est retenu pour la
+   * suite de la session. Toute autre erreur remonte telle quelle : un nom de service ne se devine pas
+   * au-dela de cette liste, et une erreur de base ne doit pas etre masquee par un second essai.
+   */
+  private async appel(action: string, params: Ls2CallParams): Promise<Record<string, unknown>> {
+    // Une fois un nom retenu, il n'est plus remis en cause : c'est celui de cette plateforme.
+    const candidats = this.service ? [this.service] : DB_SERVICES.slice();
+    return this.appelSur(candidats, action, params);
+  }
+
+  /** Essais successifs sur une liste de noms de service : le premier qui repond est retenu. */
+  private async appelSur(candidats: string[], action: string, params: Ls2CallParams): Promise<Record<string, unknown>> {
+    let derniere: unknown = null;
+    for (let i = 0; i < candidats.length; i += 1) {
+      try {
+        this.dernierNom = candidats[i];
+        const reply = await this.call('luna://' + candidats[i] + '/' + action, params);
+        this.service = candidats[i];
+        return reply;
+      } catch (erreur) {
+        derniere = erreur;
+        if (i + 1 < candidats.length && serviceIntrouvable(erreur)) continue;
+        throw erreur;
+      }
+    }
+    throw derniere instanceof Error ? derniere : new Error(String(derniere));
   }
 
   async put(name: KindName, objects: Array<Record<string, unknown>>): Promise<string[]> {
@@ -166,7 +238,7 @@ export class Db8Client {
     await this.ensureKind(name);
     // Le schéma du service (`put`) n'accepte que `objects` (et `shardId`) : toute autre clé est
     // refusée (`additionalProperties: false`). `private` appartient à `putKind`, pas à `put`.
-    const reply = await this.call('luna://' + DB_SERVICE + '/put', {
+    const reply = await this.appel('put', {
       objects: objects.map((object) => Object.assign({ _kind: kindOf(name) }, object))
     });
     if (reply.returnValue !== true) {
@@ -199,7 +271,7 @@ export class Db8Client {
     if (clauses.length > 0) query.where = clauses;
     if (options.incDel === true) query.incDel = true;
     if (options.limit !== undefined) query.limit = Math.max(0, Math.min(LIMITE_MAX_DB8, options.limit));
-    const reply = await this.call('luna://' + DB_SERVICE + '/find', { query: query });
+    const reply = await this.appel('find', { query: query });
     if (reply.returnValue !== true) {
       // Un échec de base ne doit jamais devenir « aucune ligne » : c'est ainsi qu'un index manquant
       // s'est transformé en « clé maître absente » (D-40).
@@ -211,7 +283,7 @@ export class Db8Client {
   /** Supprime des enregistrements par identifiant (`del` accepte `ids` dans l'API DB8). */
   async del(name: KindName, ids: string[]): Promise<number> {
     if (ids.length === 0) return 0;
-    const reply = await this.call('luna://' + DB_SERVICE + '/del', {
+    const reply = await this.appel('del', {
       ids: ids,
       purge: true
     });
@@ -226,7 +298,7 @@ export class Db8Client {
     await this.ensureKind(name);
     // `del` accepte `query.ids` ou `query.query` : ici une requête sans clause — c'est le kind
     // entier qui part (`from` reste obligatoire).
-    const reply = await this.call('luna://' + DB_SERVICE + '/del', {
+    const reply = await this.appel('del', {
       query: { from: kindOf(name) },
       purge: true
     });
@@ -240,7 +312,7 @@ export class Db8Client {
   async merge(name: KindName, objects: Array<Record<string, unknown>>): Promise<number> {
     if (objects.length === 0) return 0;
     await this.ensureKind(name);
-    const reply = await this.call('luna://' + DB_SERVICE + '/merge', {
+    const reply = await this.appel('merge', {
       objects: objects.map((object) => Object.assign({ _kind: kindOf(name) }, object))
     });
     if (reply.returnValue !== true) {
@@ -275,7 +347,7 @@ export class Db8Client {
       try {
         // Lecture du kind hérité **sans clause** : `from` suffit, et la requête est servie par
         // l'index implicite `_id` que DB8 enregistre pour tout kind (`configureIndexes`).
-        const reply = await this.call('luna://' + DB_SERVICE + '/find', { query: { from: legacyId } });
+        const reply = await this.appel('find', { query: { from: legacyId } });
         if (reply.returnValue !== true) {
           rapport.ignores += 1;
           continue;
@@ -324,7 +396,7 @@ export class Db8Client {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         kinds.push({ kind: kindOf(name), indexe: false, champs: [] });
-        return { ok: false, etape: 'putKind ' + name, message: message, kinds: kinds };
+        return { ok: false, etape: 'putKind ' + name, message: message, kinds: kinds, service: this.serviceDbPourDiagnostic() };
       }
     }
     const temoin = 'sonde-' + Date.now().toString(36);
@@ -337,13 +409,14 @@ export class Db8Client {
           ok: false,
           etape: 'find probes',
           message: 'temoin ecrit mais non relu par son index (' + relus.length + ' ligne(s))',
-          kinds: kinds
+          kinds: kinds,
+          service: this.serviceDbPourDiagnostic()
         };
       }
-      return { ok: true, etape: 'ecriture puis relecture indexee', kinds: kinds };
+      return { ok: true, etape: 'ecriture puis relecture indexee', kinds: kinds, service: this.serviceDbPourDiagnostic() };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, etape: 'ecriture/relecture du temoin', message: message, kinds: kinds };
+      return { ok: false, etape: 'ecriture/relecture du temoin', message: message, kinds: kinds, service: this.serviceDbPourDiagnostic() };
     }
   }
 
@@ -354,7 +427,7 @@ export class Db8Client {
     // `indexes`, `revSets`… et rien d'autre (`additionalProperties: false`).
     let reply: Record<string, unknown>;
     try {
-      reply = await this.call('luna://' + DB_SERVICE + '/putKind', {
+      reply = await this.appel('putKind', {
         id: kind,
         owner: APP_ID,
         private: true,
@@ -369,15 +442,15 @@ export class Db8Client {
       // qu'à cela (certaines versions de DB8 refusent au lieu de mettre à jour, là où celles d'OSE
       // font une mise à jour) : le kind étant v2 — donc créé par cette version, avec ses index — on
       // continue. Toute autre cause remonte telle quelle, permission comprise.
-      if (texteDe(erreur).toLowerCase().indexOf('exist') === -1) throw erreur;
+      if (!kindDejaEnregistre(texteDe(erreur))) throw erreur;
       this.knownKinds[kind] = true;
       return;
     }
     if (reply.returnValue !== true) {
       const detail = detailErreur(reply);
-      // Même tolérance quand le refus arrive en réponse (charge utile validée, `returnValue: false`).
-      // Le texte est examiné en plus du code : le code est numérique (« 61115 »), il ne dit rien.
-      if (detail.toLowerCase().indexOf('exist') === -1) {
+      // Même tolérance quand le refus arrive en réponse (charge utile validée, `returnValue: false`),
+      // avec la même retenue : « Service does not exist » n'est pas « le kind existe déjà » (D-42).
+      if (!kindDejaEnregistre(detail)) {
         throw new AppError('internal/unexpected', 'creation du kind DB8 refusee' + detail);
       }
     }
@@ -420,7 +493,9 @@ export class FakeDb8Bus {
   }
 
   readonly call: Ls2Caller = async (uri: string, params: Ls2CallParams) => {
-    const action = uri.replace('luna://' + DB_SERVICE + '/', '');
+    // Le faux bus repond quel que soit le nom de service : c'est au client de choisir le bon
+    // (`com.palm.db` sur televiseur, `com.webos.service.db` sur webOS OSE) — teste separement.
+    const action = uri.replace(/^luna:\/\/[^/]+\//, '');
     switch (action) {
       case 'putKind': {
         // DB8 refuse un `putKind` sur un kind existant : on reproduit le refus, sinon un kind

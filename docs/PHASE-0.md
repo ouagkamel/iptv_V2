@@ -75,6 +75,16 @@ plateforme était l'indice : un refus réel de DB8 arrive toujours avec son code
 donc pour refusé (D-41, corrigé en **0.1.12**). Contrôle attendu après installation : *Réglages* →
 « Page de diagnostic (0A) » → `db.ok: true` et `sonde : ok (ecriture puis relecture indexee)`.
 
+**Base locale (DB8) : « Service does not exist » (2026-10-08, essai 0.1.12)** — la page de
+diagnostic a livré la cause exacte : `appel LS2 refuse (-1) : Service does not exist:
+com.webos.service.db`. Le nom du service de base différait de celui de la plateforme testée. LG
+documente les téléviseurs sous `luna://com.palm.db` (référence « Database » et exemples officiels) ;
+le client essaie désormais ce nom d'abord, puis `com.webos.service.db` (webOS OSE), et expose le nom
+retenu dans `db.service`. Les ACG `database.operation` et `database.management` sont déclarées dans
+`appinfo.json` (0.1.13). Contrôle attendu : `db.ok: true`, `db.service: com.palm.db`, sonde
+`ok (ecriture puis relecture indexee)`. Si un autre nom de service DB8 apparaît sur l'appareil,
+relever la liste (`ls-monitor -l` sur TV) et la consigner ici.
+
 **Au lancement, l'interface doit afficher l'accueil à quatre cartes.** Le parcours minimal de la
 0A : *Live TV* → les catégories apparaissent (elles viennent de l'index, aucun appel fournisseur) →
 *Réglages* → « Tester la source » → « Importer (live) » → la progression va jusqu'à `terminé` avec
