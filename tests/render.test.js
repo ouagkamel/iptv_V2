@@ -132,7 +132,12 @@ harness.describe('interface : aucune donnée de langue n est demandée au démar
     );
 
     // 2) la feuille de style porte les regles du theme (police + couleur)…
-    var css = fs.readFileSync(path.join(RACINE, 'ui', 'dist', 'main.css'), 'utf8');
+    //    Cette partie exige l'interface **construite** : elle s'ignore proprement là où le build n'a
+    //    pas lieu (le job Node 8.12 de la CI, qui ne teste que le service). Le job Node 20 construit
+    //    l'interface avant les tests : le contrôle y est donc bien exercé.
+    var feuille = path.join(RACINE, 'ui', 'dist', 'main.css');
+    if (!fs.existsSync(feuille)) return;
+    var css = fs.readFileSync(feuille, 'utf8');
     assert.ok(css.indexOf('@font-face') !== -1, 'polices déclarées (@font-face)');
     assert.ok(/ThemeDecorator_ThemeDecorator_root/.test(css), 'règles du nœud racine du thème');
     assert.ok(/font-family:"Sandstone"/.test(css) || /font-family: *"Sandstone"/.test(css), 'police Sandstone');
