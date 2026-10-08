@@ -6,7 +6,8 @@
  * Discipline du projet : **zéro dépendance d'exécution**. Le service est empaqueté sans
  * `node_modules` et tourne sur le Node 8.12 embarqué ; une dépendance transitive qui utilise une
  * API postérieure (Brotli, `fs.promises`, `for await`…) casserait la TV sans casser la CI locale.
- * Les `devDependencies` ne sont jamais empaquetées et restent autorisées.
+ * Les `devDependencies` — et donc leur arbre de dépendances — ne sont jamais empaquetées : elles
+ * restent autorisées (`typescript`, `jsdom` pour le banc d'essai de l'interface).
  */
 
 var fs = require('fs');
@@ -34,39 +35,53 @@ if (fs.existsSync(servicePkgPath)) {
   }
 }
 
+// Le lockfile est la référence : npm le marque « dev » pour tout ce qui vient des devDependencies.
+// Une seule entrée non marquée « dev » (hors racine) serait une dépendance d'exécution — donc une
+// brique qui serait empaquetée vers la TV et devrait tenir sur Node 8.12.
 var lockPath = path.join(ROOT, 'package-lock.json');
+var packages = {};
 if (fs.existsSync(lockPath)) {
-  var lock = readJson(lockPath);
-  var packages = lock.packages || {};
+  packages = readJson(lockPath).packages || {};
   Object.keys(packages).forEach(function (key) {
     if (!key || key === '') return;
     var entry = packages[key];
-    var isRoot = key === '';
-    if (isRoot) return;
-    var isDev = entry.dev === true || entry.devOptional === true;
-    if (!isDev && Object.keys(entry.dependencies || {}).length > 0) {
-      problems.push('lockfile : ' + key + ' est une dépendance d\'exécution');
-    }
+    if (entry.dev === true || entry.devOptional === true) return;
+    problems.push('lockfile : ' + key + ' est une dépendance d\'exécution (' + Object.keys(entry.dependencies || {}).length + ' dépendance(s) déclarée(s))');
   });
 }
 
+// `node_modules` : chaque brique présente doit venir du lockfile et y être marquée « dev ». Le
+// contrôle porte sur le lockfile, pas sur le préfixe du nom — l'arbre des devDependencies (par
+// exemple `jsdom` pour le banc d'essai de l'interface) est légitime et n'est jamais empaqueté.
 var nmDir = path.join(ROOT, 'node_modules');
 if (fs.existsSync(nmDir)) {
   var top = fs.readdirSync(nmDir).filter(function (name) {
     return name.charAt(0) !== '.';
   });
-  var devDeps = Object.keys(rootPkg.devDependencies || {}).map(function (name) {
-    return name.replace(/^@/, '').replace(/[/].*$/, '');
-  });
+  var noms = [];
   top.forEach(function (name) {
-    var base = name.replace(/^@/, '');
-    var allowed = devDeps.some(function (devDep) {
-      return name === devDep || base.indexOf(devDep) === 0 || devDep.indexOf(base) === 0;
-    });
-    if (!allowed) {
-      problems.push('node_modules : paquet non devDependency (' + name + ')');
+    if (name.charAt(0) === '@') {
+      // portée : chaque paquet est listé sous `node_modules/@portee/paquet`
+      fs.readdirSync(path.join(nmDir, name)).forEach(function (paquet) {
+        noms.push(name + '/' + paquet);
+      });
+      return;
+    }
+    noms.push(name);
+  });
+  noms.forEach(function (name) {
+    var entry = packages['node_modules/' + name];
+    if (!entry) {
+      problems.push('node_modules : paquet absent du lockfile (' + name + ')');
+      return;
+    }
+    if (entry.dev !== true && entry.devOptional !== true) {
+      problems.push('node_modules : paquet d\'exécution installé (' + name + ')');
     }
   });
+  if (Object.keys(packages).length === 0) {
+    problems.push('node_modules présent sans lockfile : impossible de distinguer exécution et outillage');
+  }
 }
 
 if (problems.length > 0) {
