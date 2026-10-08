@@ -18,19 +18,60 @@ import { AppError } from '../../contracts/errors';
 export const APP_ID = 'com.ouagkamel.app.iptvplayer';
 export const DB_SERVICE = 'com.webos.service.db';
 
-/** Kinds versionnés : le numéro change si le schéma change (migration explicite, jamais silencieuse). */
+/**
+ * Kinds versionnés : le numéro change si le schéma change (migration explicite, jamais silencieuse).
+ *
+ * Passés à **2** en 0.1.11 : les kinds v1 avaient été enregistrés **sans index**, et DB8 n'ajoute pas
+ * d'index à un kind existant. Or « All queries must be on indexed fields » (guide DB8 de LG) : une
+ * requête sur un champ non indexé ne renvoie rien (ou échoue), ce qui faisait perdre la clé maître —
+ * l'index du catalogue devenait illisible avec le message trompeur « clé maître absente ». Les kinds
+ * v2 sont créés avec leurs index ; les v1 restent sur l'appareil, inutilisés (le catalogue doit être
+ * réimporté une fois, de toute façon illisible).
+ */
 export const KIND_VERSIONS = {
-  profiles: 1,
-  preferences: 1,
-  favorites: 1,
-  playbacks: 1,
-  epgMappings: 1,
-  importJobs: 1,
-  masterKeys: 1,
-  consents: 1
+  profiles: 2,
+  preferences: 2,
+  favorites: 2,
+  playbacks: 2,
+  epgMappings: 2,
+  importJobs: 2,
+  masterKeys: 2,
+  consents: 2,
+  probes: 1
 } as const;
 
 export type KindName = keyof typeof KIND_VERSIONS;
+
+/**
+ * Index déclarés à `putKind`. DB8 n'accepte une requête que sur `_id`, `_kind` et ces propriétés :
+ * la liste suit exactement ce que les dépôts interrogent (aucun index superflu, aucun champ
+ * interrogé sans index). Toute requête hors de cette liste est refusée **côté client** avant d'être
+ * envoyée : mieux vaut une erreur immédiate et explicite qu'un résultat vide qui a l'air valide.
+ */
+export const KIND_INDEXES: Record<KindName, Array<{name: string; props: string[]}>> = {
+  profiles: [{name: 'id', props: ['id']}],
+  preferences: [{name: 'profileId', props: ['profileId']}],
+  favorites: [{name: 'profileId', props: ['profileId']}, {name: 'key', props: ['key']}],
+  playbacks: [{name: 'profileId', props: ['profileId']}, {name: 'key', props: ['key']}],
+  epgMappings: [{name: 'profileId', props: ['profileId']}],
+  importJobs: [{name: 'jobId', props: ['jobId']}, {name: 'profileId', props: ['profileId']}],
+  masterKeys: [{name: 'profileId', props: ['profileId']}],
+  consents: [{name: 'profileId', props: ['profileId']}],
+  probes: [{name: 'cle', props: ['cle']}]
+};
+
+/** Propriétés interrogeables d'un kind : `_id`, `_kind` et les propriétés indexées. */
+export function champsInterrogeables(name: KindName): string[] {
+  const champs = ['_id', '_kind'];
+  KIND_INDEXES[name].forEach((index) => index.props.forEach((prop) => champs.push(prop)));
+  return champs;
+}
+
+/** Toute propriété non indexée présente dans un `where` : doit rester vide, sinon la requête est invalide. */
+export function champsNonIndexes(name: KindName, where: Record<string, unknown>): string[] {
+  const permis = champsInterrogeables(name);
+  return Object.keys(where).filter((champ) => permis.indexOf(champ) === -1);
+}
 
 export function kindOf(name: KindName): string {
   return APP_ID + ':db:' + name + ':' + KIND_VERSIONS[name];
@@ -45,6 +86,36 @@ export type Ls2Caller = (uri: string, params: Ls2CallParams) => Promise<{ return
 export interface Db8ClientOptions {
   call: Ls2Caller;
   appId?: string;
+}
+
+/** Détail lisible d'une réponse en échec : ` : erreurCode erreurTexte`, jamais de contenu sensible. */
+function detailErreur(reply: Record<string, unknown>): string {
+  const code = reply.errorCode !== undefined ? String(reply.errorCode) : '';
+  const texte = reply.errorText !== undefined ? String(reply.errorText) : '';
+  const interne = (reply.error || {}) as { errorCode?: unknown; errorText?: unknown };
+  const codeInterne = interne.errorCode !== undefined ? String(interne.errorCode) : '';
+  const texteInterne = interne.errorText !== undefined ? String(interne.errorText) : '';
+  const morceaux = [
+    [code, texte].filter((valeur) => valeur !== '').join(' '),
+    [codeInterne, texteInterne].filter((valeur) => valeur !== '').join(' ')
+  ].filter((valeur) => valeur !== '');
+  return morceaux.length > 0 ? ' : ' + morceaux.join(' / ') : '';
+}
+
+export interface RapportMigrationDb8 {
+  /** Nombre d'enregistrements repris des kinds v1. */
+  migres: number;
+  /** Paires `kind v2 <- kind v1` reprises. */
+  kinds: string[];
+  /** Kinds laissés de côté (cible déjà remplie, kind hérité absent ou illisible). */
+  ignores: number;
+}
+
+export interface SondageDb8 {
+  ok: boolean;
+  etape: string;
+  message?: string;
+  kinds: Array<{kind: string; indexe: boolean; champs: string[]}>;
 }
 
 export class Db8Client {
@@ -77,12 +148,23 @@ export class Db8Client {
     where: Record<string, unknown>,
     options: { limit?: number; incDel?: boolean } = {}
   ): Promise<T[]> {
+    const interdits = champsNonIndexes(name, where);
+    if (interdits.length > 0) {
+      // Erreur de programmation, pas de données : DB8 n'indexe pas ce champ, la requête ne peut pas
+      // répondre. La refuser ici évite le pire des cas — un résultat vide crédible (D-40).
+      throw new AppError(
+        'internal/unexpected',
+        'requete DB8 non indexee sur ' + interdits.join(', ') + ' (kind ' + name + ') — declarer un index dans KIND_INDEXES'
+      );
+    }
     await this.ensureKind(name);
     const query: Record<string, unknown> = { where: Object.assign({ _kind: kindOf(name) }, where) };
     if (options.limit !== undefined) query.limit = options.limit;
     const reply = await this.call('luna://' + DB_SERVICE + '/find', { query, incDel: options.incDel === true });
-    if (reply.returnValue === false) {
-      throw new AppError('internal/unexpected', 'lecture DB8 refusee');
+    if (reply.returnValue !== true) {
+      // Un échec de base ne doit jamais devenir « aucune ligne » : c'est ainsi qu'un index manquant
+      // s'est transformé en « clé maître absente » (D-40).
+      throw new AppError('internal/unexpected', 'lecture DB8 refusee' + detailErreur(reply));
     }
     return ((reply.results || []) as T[]).slice();
   }
@@ -125,19 +207,119 @@ export class Db8Client {
     return (reply.count as number) || objects.length;
   }
 
+  /**
+   * **Migration des kinds v1 vers v2.** Les kinds v1 ont été enregistrés sans index : plus aucune
+   * requête indexée ne peut les lire (c'est la cause du défaut D-40). Les données, elles, sont
+   * intactes — y compris la **clé maître** avec laquelle l'index chiffré a été écrit. Les reprendre
+   * évite un réimport complet du portail.
+   *
+   * Principe : la cible ne doit pas déjà contenir de lignes (jamais de mélange de deux générations),
+   * la lecture du kind hérité se fait **sans contrainte de champ** (`_kind` seul, aucune propriété à
+   * indexer), et chaque échec est simplement ignoré — le réimport reste la solution de repli.
+   */
+  async migrateLegacyKinds(): Promise<RapportMigrationDb8> {
+    const rapport: RapportMigrationDb8 = { migres: 0, kinds: [], ignores: 0 };
+    for (const name of Object.keys(KIND_VERSIONS) as KindName[]) {
+      if (name === 'probes') continue;
+      if (KIND_VERSIONS[name] <= 1) continue;
+      const legacyId = APP_ID + ':db:' + name + ':1';
+      await this.ensureKind(name);
+      const cibles = await this.find<Record<string, unknown>>(name, {});
+      if (cibles.length > 0) {
+        rapport.ignores += 1;
+        continue;
+      }
+      let lignes: Array<Record<string, unknown>> = [];
+      try {
+        const reply = await this.call('luna://' + DB_SERVICE + '/find', { query: { where: { _kind: legacyId } } });
+        if (reply.returnValue !== true) {
+          rapport.ignores += 1;
+          continue;
+        }
+        lignes = ((reply.results || []) as Array<Record<string, unknown>>).slice();
+      } catch (_erreur) {
+        rapport.ignores += 1;
+        continue;
+      }
+      if (lignes.length === 0) {
+        rapport.ignores += 1;
+        continue;
+      }
+      const copies = lignes.map((ligne) => {
+        const copie: Record<string, unknown> = {};
+        Object.keys(ligne).forEach((cle) => {
+          if (cle !== '_id' && cle !== '_kind') copie[cle] = ligne[cle];
+        });
+        return copie;
+      });
+      await this.put(name, copies);
+      rapport.migres += copies.length;
+      rapport.kinds.push(kindOf(name) + ' <- ' + legacyId);
+    }
+    return rapport;
+  }
+
+  /**
+   * **Sonde DB8** : enregistre les kinds, écrit un témoin, le relit **par son index**, puis le
+   * supprime. C'est la seule vérification qui distingue « DB8 répond » de « DB8 répond *ce qui est
+   * demandé* » ; sans elle, un kind enregistré sans index et une base vide se ressemblent (D-40).
+   * Aucune donnée d'utilisateur n'est touchée : le kind `probes` ne sert qu'ici.
+   */
+  async sonde(): Promise<SondageDb8> {
+    const kinds: SondageDb8['kinds'] = [];
+    for (const name of Object.keys(KIND_VERSIONS) as KindName[]) {
+      try {
+        await this.ensureKind(name);
+        kinds.push({
+          kind: kindOf(name),
+          indexe: KIND_INDEXES[name].length > 0,
+          champs: KIND_INDEXES[name].map((index) => index.props.join('+'))
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        kinds.push({ kind: kindOf(name), indexe: false, champs: [] });
+        return { ok: false, etape: 'putKind ' + name, message: message, kinds: kinds };
+      }
+    }
+    const temoin = 'sonde-' + Date.now().toString(36);
+    try {
+      const ids = await this.put('probes', [{ cle: temoin, at: Date.now() }]);
+      const relus = await this.find<Record<string, unknown>>('probes', { cle: temoin }, { limit: 1 });
+      await this.del('probes', ids.filter((id) => id !== ''));
+      if (relus.length !== 1) {
+        return {
+          ok: false,
+          etape: 'find probes',
+          message: 'temoin ecrit mais non relu par son index (' + relus.length + ' ligne(s))',
+          kinds: kinds
+        };
+      }
+      return { ok: true, etape: 'ecriture puis relecture indexee', kinds: kinds };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, etape: 'ecriture/relecture du temoin', message: message, kinds: kinds };
+    }
+  }
+
   private async ensureKind(name: KindName): Promise<void> {
     const kind = kindOf(name);
     if (this.knownKinds[kind]) return;
     const reply = await this.call('luna://' + DB_SERVICE + '/putKind', {
       id: kind,
       owner: APP_ID,
-      private: true
+      private: true,
+      // DB8 : « All queries must be on indexed fields » — sans ces index, aucune requête ne répond.
+      indexes: KIND_INDEXES[name].map((index) => ({
+        name: index.name,
+        props: index.props.map((prop) => ({name: prop}))
+      }))
     });
-    // Un `putKind` sur un kind déjà existant n'est pas une erreur : on ne bloque pas l'usage.
-    if (reply.returnValue === false) {
-      const errorCode = String((reply.error as { errorCode?: string } | undefined)?.errorCode || '');
-      if (errorCode.indexOf('exists') === -1 && errorCode !== '') {
-        throw new AppError('internal/unexpected', 'creation du kind DB8 refusee');
+    if (reply.returnValue !== true) {
+      const detail = detailErreur(reply);
+      // Un `putKind` sur un kind déjà existant n'est pas une erreur : on ne bloque pas l'usage. Le
+      // texte est examiné en plus du code : le code est numérique (« 61115 »), il ne dit rien.
+      if (detail.toLowerCase().indexOf('exist') === -1) {
+        throw new AppError('internal/unexpected', 'creation du kind DB8 refusee' + detail);
       }
     }
     this.knownKinds[kind] = true;
@@ -151,15 +333,40 @@ export class Db8Client {
  */
 export class FakeDb8Bus {
   private readonly stores: Record<string, Array<Record<string, unknown>>> = {};
+  /** Kinds enregistres et leurs index : c'est ce qui decide quelles requetes sont valides. */
+  readonly kinds: Record<string, string[]> = {};
   private counter = 0;
+
+  /** Propriétés interrogeables d'un kind enregistré : `_id`, `_kind` et ses index. */
+  private champs(kind: string): string[] {
+    return ['_id', '_kind'].concat(this.kinds[kind] || []);
+  }
 
   readonly call: Ls2Caller = async (uri: string, params: Ls2CallParams) => {
     const action = uri.replace('luna://' + DB_SERVICE + '/', '');
     switch (action) {
-      case 'putKind':
-        return { returnValue: true };
+      case 'putKind': {
+        // DB8 refuse un `putKind` sur un kind existant : on reproduit le refus, sinon un kind
+        // enregistre sans index (schema v1) passerait pour un kind conforme (D-40).
+        const id = String(params.id || '');
+        if (this.kinds[id]) {
+          return { returnValue: false, errorCode: 61115, errorText: "db: kind already exists: '" + id + "'" };
+        }
+        const indexes = (params.indexes || []) as Array<{ props?: Array<{ name?: string }> }>;
+        this.kinds[id] = indexes.reduce<string[]>((champs, index) => {
+          (index.props || []).forEach((prop) => {
+            if (prop && prop.name) champs.push(String(prop.name));
+          });
+          return champs;
+        }, []);
+        return { returnValue: true, kind: id, indexes: indexes.length };
+      }
       case 'put': {
         const objects = (params.objects || []) as Array<Record<string, unknown>>;
+        const kindInconnu = objects.map((o) => String(o._kind)).find((kind) => !this.kinds[kind]);
+        if (kindInconnu) {
+          return { returnValue: false, errorCode: -3970, errorText: 'db: kind not registered' };
+        }
         const results: Array<{ id: string }> = [];
         objects.forEach((object) => {
           const kind = String(object._kind);
@@ -189,6 +396,18 @@ export class FakeDb8Bus {
         const query = (params.query || {}) as { where?: Record<string, unknown>; limit?: number };
         const where = query.where || {};
         const kind = String(where._kind);
+        if (!this.kinds[kind]) {
+          return { returnValue: false, errorCode: -3970, errorText: 'db: kind not registered' };
+        }
+        const permis = this.champs(kind);
+        const interdits = Object.keys(where).filter((champ) => permis.indexOf(champ) === -1);
+        if (interdits.length > 0) {
+          return {
+            returnValue: false,
+            errorCode: -3965,
+            errorText: 'db: no index for query (' + interdits.join(', ') + ')'
+          };
+        }
         const list = (this.stores[kind] || []).filter((record) => matches(record, where));
         const limited = query.limit === undefined ? list : list.slice(0, query.limit);
         return { returnValue: true, results: limited.map((record) => Object.assign({}, record)) };

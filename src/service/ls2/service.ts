@@ -175,6 +175,9 @@ export class IptvService {
     return (payload, respond, context) => {
       const limits = command === 'resolveStream' ? { allowStreamUrl: true, maxBytes: 8 * 1024 } : {};
       return Promise.resolve()
+        // Migration des kinds v1 -> v2 au premier usage : elle doit passer **avant** toute lecture,
+        // sinon la clé maître (et le profil) sembleraient absents alors qu'ils sont intacts (D-40).
+        .then(() => this.pretPourDb())
         .then(() => this.dispatch(command, payload, respond, context.subscribed))
         .then((reply) => {
           if (reply !== undefined) respond(this.safeReply(reply, limits, command));
@@ -183,6 +186,37 @@ export class IptvService {
           respond(this.safeReply(ls2Fail(error), limits, command));
         });
     };
+  }
+
+  /** Migration des kinds v1 -> v2 : tentée une seule fois par session, jamais bloquante. */
+  private migrationDb8?: Promise<void>;
+
+  private pretPourDb(): Promise<void> {
+    if (!this.migrationDb8) {
+      this.migrationDb8 = this.db
+        .migrateLegacyKinds()
+        .then((rapport) => {
+          if (rapport.migres > 0) {
+            this.onLog(
+              'migration DB8 : ' +
+                rapport.migres +
+                ' enregistrement(s) repris du schema v1 (' +
+                rapport.kinds.join(', ') +
+                ')'
+            );
+            this.onLog(
+              rapport.kinds.some((paire) => paire.indexOf('masterKeys') !== -1)
+                ? 'migration DB8 : cle maitre reprise — l index deja importe reste lisible'
+                : 'migration DB8 : donnees reprises du schema v1'
+            );
+          }
+        })
+        .catch((error) => {
+          // Jamais bloquant : au pire, l'utilisateur réimporte la source.
+          this.onLog('migration DB8 ignoree : ' + describe(error));
+        });
+    }
+    return this.migrationDb8;
   }
 
   private safeReply(reply: unknown, limits: ReplyLimits, command: string): unknown {
@@ -725,6 +759,18 @@ export class IptvService {
       db = { ok: true, profiles: profiles.length };
     } catch (error) {
       db = { ok: false, erreur: describe(error) };
+    }
+    // Sonde DB8 : écriture d'un témoin puis relecture **par son index**, puis suppression. Sans elle,
+    // « la base répond » et « la base sait répondre à cette requête » se ressemblent — c'est ce qui a
+    // masqué un kind enregistré sans index (D-40).
+    try {
+      const sondage = await this.db.sonde();
+      db = Object.assign({}, db, {
+        sonde: sondage.ok ? 'ok (' + sondage.etape + ')' : 'echec (' + sondage.etape + ') : ' + String(sondage.message || ''),
+        kinds: sondage.kinds
+      });
+    } catch (error) {
+      db = Object.assign({}, db, { sonde: 'indisponible : ' + describe(error) });
     }
     const indexes: Array<Record<string, unknown>> = [];
     for (const profile of profiles) {

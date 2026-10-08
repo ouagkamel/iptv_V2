@@ -145,7 +145,7 @@ function environnement() {
     // le simulateur webOS n'enregistre pas les services déclarés par un .ipk : il faut les ajouter
     // à la main (File > Add Service). Le reconnaître évite de chercher un défaut côté paquet.
     simulateur: /simulator|emulator/i.test(navigator.userAgent),
-    versionPage: '0.1.10'
+    versionPage: '0.1.11'
   };
 }
 
@@ -202,6 +202,22 @@ function controleInitial() {
       masquerBanniere();
       afficher('diagnostics (contrôle initial)', reponse);
       var db = reponse && reponse.data && reponse.data.db;
+      if (db && typeof db.sonde === 'string' && db.sonde.indexOf('echec') === 0) {
+        // « DB8 répond » ne veut pas dire « DB8 sait répondre à *cette* requête » : sans index, une
+        // recherche par profil ne renvoie rien, et la clé maître (donc le catalogue) semblerait perdue.
+        banniere(
+          'Base locale (DB8) : requêtes indexées en échec',
+          'Le service joint la base, mais la sonde d’écriture/relecture échoue : <code>' + db.sonde + '</code>. ' +
+            'Les profils et le catalogue ne peuvent pas être relus tant que ce point n’est pas réglé.',
+          [
+            'Vérifier la version installée : <code>ares-install --device tv --listfull</code> — la sonde ' +
+              'n’existe qu’à partir de <code>0.1.11</code>.',
+            'Si la réponse cite <code>no index for query</code> : le paquet est le bon, mais la base garde ' +
+              'd’anciens kinds sans index. Réimporter la source une fois (Réglages → Importer) régularise la base.',
+            'Consigner le message exact dans <code>docs/PHASE-0.md</code> §0A avant toute autre manipulation.'
+          ]
+        );
+      }
       if (db && db.ok === false) {
         banniere(
           'Base locale (DB8) inaccessible',

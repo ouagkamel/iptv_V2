@@ -10,6 +10,7 @@
 import * as crypto from 'crypto';
 import type { ContentRef, FavoriteRecord, PlaybackPosition, Profile, ImportJob } from '../../contracts/types';
 import { redactUrl } from '../../core/urltools';
+import { AppError } from '../../contracts/errors';
 import { Db8Client, kindOf } from './client';
 
 export interface ProfileRepository {
@@ -163,6 +164,17 @@ export function createMasterKeyRepository(db: Db8Client): MasterKeyRepository {
       const row: Record<string, unknown> = { profileId, key: key.toString('base64') };
       if (rows.length > 0 && rows[0]._id) row._id = rows[0]._id;
       await db.put('masterKeys', [row]);
+      // **Vérification aller-retour** : si la clé ne se relit pas, l'index chiffré écrit dans la
+      // foulée serait illisible et le défaut n'apparaîtrait qu'à la première lecture du catalogue
+      // (« clé maître absente »). Mieux vaut refuser l'import tout de suite, en le disant (D-40).
+      const relue = await this.get(profileId);
+      if (!relue) {
+        throw new AppError(
+          'internal/unexpected',
+          'cle maitre ecrite mais illisible : la consultation DB8 ne retrouve pas la ligne',
+          'voir Reglages > Page de diagnostic : la sonde DB8 dit si les index du kind sont utilisables'
+        );
+      }
       return key;
     },
     async remove(profileId: string): Promise<void> {
@@ -210,9 +222,11 @@ function isActivePhase(phase: ImportJob['phase']): boolean {
 export function createConsentRepository(db: Db8Client): ConsentRepository {
   return {
     async record(consent: ConsentRecord): Promise<void> {
-      const where: Record<string, unknown> = { profileId: consent.profileId, kind: consent.kind };
-      if (consent.insecureHost) where.insecureHost = consent.insecureHost;
-      const rows = await db.find<Record<string, unknown>>('consents', where, { limit: 1 });
+      // DB8 n'accepte une requête que sur un champ indexé : on interroge `profileId` (indexé) et on
+      // compare `kind` / `insecureHost` ici. Une requête sur ces deux-là ne renverrait rien (D-40).
+      const rows = (await db.find<Record<string, unknown>>('consents', { profileId: consent.profileId }))
+        .filter((candidat) => candidat.kind === consent.kind)
+        .filter((candidat) => (consent.insecureHost ? candidat.insecureHost === consent.insecureHost : true));
       const row = Object.assign({}, consent) as unknown as Record<string, unknown>;
       if (rows.length > 0 && rows[0]._id) row._id = rows[0]._id;
       await db.put('consents', [row]);
@@ -222,9 +236,9 @@ export function createConsentRepository(db: Db8Client): ConsentRepository {
       return rows.map((row) => row as unknown as ConsentRecord);
     },
     async has(profileId: string, kind: ConsentRecord['kind'], host?: string): Promise<boolean> {
-      const where: Record<string, unknown> = { profileId, kind };
-      if (host !== undefined) where.insecureHost = host;
-      const rows = await db.find<Record<string, unknown>>('consents', where, { limit: 1 });
+      const rows = (await db.find<Record<string, unknown>>('consents', { profileId }))
+        .filter((candidat) => candidat.kind === kind)
+        .filter((candidat) => (host === undefined ? true : candidat.insecureHost === host));
       return rows.length > 0;
     },
     async remove(profileId: string): Promise<void> {
@@ -255,7 +269,10 @@ export function createFavoriteRepository(db: Db8Client): FavoriteRepository {
     [ref.profileId, ref.contentType, ref.providerId || ref.sourceKey || '', ref.logicalKey || ''].join('|');
   return {
     async list(profileId: string): Promise<FavoriteRecord[]> {
-      const rows = await db.find<Record<string, unknown>>('favorites', { profileId, deleted: false });
+      // `deleted` n'est pas indexé dans DB8 : le filtre s'applique ici, pas dans la requête (D-40).
+      const rows = (await db.find<Record<string, unknown>>('favorites', { profileId })).filter(
+        (row) => row.deleted !== true
+      );
       return rows.map((row) => row.record as FavoriteRecord).filter(Boolean);
     },
     async add(record: FavoriteRecord): Promise<void> {

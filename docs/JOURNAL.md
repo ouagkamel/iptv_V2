@@ -1,5 +1,42 @@
 # Journal d'exécution
 
+## 2026-10-08 — « clé maître absente » : DB8 n'accepte que les requêtes indexées (0.1.11)
+
+**Ce qui a été observé** (simulateur, paquet 0.1.10) : l'accueil s'affiche, l'import se déroule
+normalement, puis **« catégories : catalog/corrupt — cle maitre absente : index illisible
+(reimporter la source) »**.
+
+**Ce que le message cachait.** La clé maître n'avait pas disparu : elle était **écrite** puis jamais
+**relue** — l'application la cherchait par `find('masterKeys', {profileId})`. Or le guide DB8 de LG est
+explicite : « **All queries must be on indexed fields** … You can only query on an indexed property »,
+et `putKind` reçoit ses index par le paramètre `indexes`. Nos kinds étaient enregistrés **sans aucun
+index**.
+
+| Réf. | Constat | Correctif |
+|---|---|---|
+| **D-40a** | `putKind` sans `indexes` : sur un appareil, une requête sur `profileId`, `jobId`, `key`, `kind`… ne peut rien renvoyer (erreur `-3965 db: no index for query`, ou silence selon la version) | `KIND_INDEXES` déclare les index de chaque kind, exactement ceux que les dépôts interrogent |
+| **D-40b** | DB8 n'ajoute pas d'index à un kind existant : les kinds déjà enregistrés sans index restaient cassés | `KIND_VERSIONS` passe à **2** (le versionnement des kinds était prévu pour ça) : kinds neufs, avec index |
+| **D-40c** | Les données de l'ancien schéma auraient été perdues — dont la clé maître, donc l'index déjà importé | `Db8Client.migrateLegacyKinds()` : au premier lancement, les lignes des kinds v1 sont **reprises** dans les v2 (la lecture du kind hérité se fait sans contrainte de champ). La clé maître reprise rend l'index existant **lisible sans réimport**. Journalisé, jamais silencieux |
+| **D-40d** | Un échec DB8 pouvait passer pour « aucune ligne » : `returnValue` absent/false traité comme un résultat vide | `find` exige `returnValue === true` et relaie le code et le texte de la plateforme ; un `where` sur un champ non indexé est **refusé côté client** avant tout appel |
+| **D-40e** | Deux dépôts interrogeaient des champs non indexés (`consents.kind`/`insecureHost`, `favorites.deleted`) : silencieusement vides sur un vrai DB8 — les consentements auraient été redemandés à chaque fois | Requête sur `profileId` (indexé), comparaison des autres champs en mémoire |
+| **D-40f** | L'écriture de la clé maître n'était jamais vérifiée : le défaut n'apparaissait qu'à la première lecture du catalogue | `ensure()` relit la clé aussitôt : si l'index du kind n'est pas utilisable, **l'import échoue sur-le-champ** avec la cause, au lieu de produire un index illisible |
+| **D-40g** | Aucun moyen de savoir ce que DB8 répond vraiment | Sonde dans `diagnostics` : enregistrement des kinds, écriture d'un témoin, relecture **par son index**, suppression. La page de diagnostic affiche le résultat et alerte s'il échoue |
+
+**Pourquoi les tests ne l'avaient pas vu** : `FakeDb8Bus` faisait une correspondance exacte sur
+n'importe quel champ — un DB8 idéal, plus permissif que le vrai. Il applique désormais la règle :
+seuls `_id`, `_kind` et les propriétés **indexées** sont interrogeables (`-3965` sinon), un `putKind`
+sur un kind existant est refusé (`61115`), un `put` sur un kind inconnu échoue (`-3970`). Les dix
+échecs apparus aussitôt étaient les requêtes fautives — corrigées une par une.
+
+**Tests ajoutés** (`tests/db8.test.js`, 9 cas) : index déclarés à `putKind` ; refus d'une requête non
+indexée **sans appel réseau** ; règle `-3965`/`-3970` du bus ; `putKind` rejoué sans casser ; aller-
+retour de la clé maître ; kind v1 sans index → erreur explicite ; DB8 « silencieux » → refus net ;
+reprise des données v1 (clé maître identique, donc index déchiffrable) ; import + lecture du catalogue
+sur le bus strict ; sonde exposée par le diagnostic.
+
+**Contrôles** : `npm test` → **215 tests, 0 échec** ; `lint:node812`, `check:deps`, `typecheck` OK ;
+banc headless et contrôle visuel sur les paquets 0.1.11 (thème, polices, contraste 16,83).
+
 ## 2026-10-08 — Toujours noir, mais sans erreur : le thème n'était pas appliqué (0.1.10)
 
 **Ce qui a été observé** (simulateur, paquet 0.1.9) : plus aucune erreur, `main.js` en 200… et
