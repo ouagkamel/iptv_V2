@@ -57,10 +57,18 @@ function creerDossiers(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 }
 
-function copyTree(from, to) {
+/**
+ * Copie recursive. Par defaut les dossiers `node_modules` sont **ignores** : une dependance ne doit
+ * jamais se retrouver dans un paquet. Exception explicite (`autoriserNodeModules`) reservee aux
+ * ressources du theme, dont le CSS a besoin (polices de Sandstone, rangees sous
+ * `node_modules/@enact/sandstone/fonts/` par le build Enact).
+ */
+function copyTree(from, to, options) {
+  var nodeModulesAutorises = !!(options && options.autoriserNodeModules);
   creerDossiers(to);
   fs.readdirSync(from).forEach(function (name) {
-    if (name === 'node_modules' || name === '.git') return;
+    if (name === '.git') return;
+    if (name === 'node_modules' && !nodeModulesAutorises) return;
     var source = path.join(from, name);
     var cible = path.join(to, name);
     if (fs.statSync(source).isDirectory()) copyTree(source, cible);
@@ -73,6 +81,32 @@ function aresPackageCommand() {
   var local = path.join(process.env.HOME || '', '.local', 'ares', 'node_modules', '.bin', 'ares-package');
   if (fs.existsSync(local)) return local;
   return 'ares-package';
+}
+
+/** Taille cumulee d'un arbre de fichiers (octets). */
+function tailleArbre(dossier) {
+  var total = 0;
+  (function parcourir(chemin) {
+    fs.readdirSync(chemin).forEach(function (nom) {
+      var complet = path.join(chemin, nom);
+      if (fs.statSync(complet).isDirectory()) parcourir(complet);
+      else total += fs.statSync(complet).size;
+    });
+  })(dossier);
+  return total;
+}
+
+/** Nombre de fichiers d'un arbre. */
+function compterFichiers(dossier) {
+  var total = 0;
+  (function parcourir(chemin) {
+    fs.readdirSync(chemin).forEach(function (nom) {
+      var complet = path.join(chemin, nom);
+      if (fs.statSync(complet).isDirectory()) parcourir(complet);
+      else total += 1;
+    });
+  })(dossier);
+  return total;
 }
 
 function main() {
@@ -112,6 +146,24 @@ function main() {
     if (!fs.existsSync(path.join(uiDist, nom))) fail('interface Enact incomplete : ui/dist/' + nom + ' absent');
     fs.copyFileSync(path.join(uiDist, nom), path.join(uiApp, nom));
   });
+
+  // 3ter) **ressources du theme** : `main.css` reference les polices de Sandstone en
+  // `url(node_modules/@enact/sandstone/fonts/...)`, relatives a lui. Sans ce dossier a cote de
+  // `main.css` dans le paquet, le navigateur ne trouve ni le texte (MuseoSans / Miso) ni les
+  // **icones** (`Sandstone_Icons`), qui n'ont aucun repli local : les tuiles s'affichent sans
+  // pictogramme. Le dossier vient du build Enact (`ui/dist/node_modules`), il ne contient que les
+  // polices reellement referencees (environ 1,3 Mo).
+  var uiRessources = path.join(uiDist, 'node_modules');
+  if (!fs.existsSync(uiRessources)) {
+    fail('interface Enact incomplete : ui/dist/node_modules absent (polices du theme) — relancer `npm run build:ui`');
+  }
+  var uiAppRessources = path.join(uiApp, 'node_modules');
+  if (fs.existsSync(uiAppRessources)) removeTree(uiAppRessources);
+  copyTree(uiRessources, uiAppRessources, {autoriserNodeModules: true});
+  var policeIcones = path.join(uiAppRessources, '@enact', 'sandstone', 'fonts', 'Sandstone_Icons.ttf');
+  if (!fs.existsSync(policeIcones)) {
+    fail('polices du theme incompletes : ' + path.relative(ROOT, policeIcones) + ' absent');
+  }
   console.log(
     '[pack] interface Enact : ui/main.js (' +
       fs.statSync(path.join(uiApp, 'main.js')).size +
@@ -162,8 +214,18 @@ function main() {
   var inspection = path.join(RELEASE, 'package');
   if (fs.existsSync(inspection)) removeTree(inspection);
   copyTree(appDir, inspection);
+  // les ressources du theme (polices) suivent : sans elles, la copie d'inspection — dont le pack
+  // simulateur et `dist/` sont tires — n'afficherait ni texte ni icones.
+  copyTree(uiAppRessources, path.join(inspection, 'ui', 'node_modules'), {autoriserNodeModules: true});
   copyTree(SERVICE_DIR, path.join(inspection, 'service', serviceName));
 
+  console.log(
+    '[pack] ressources du theme : ui/node_modules (' +
+      tailleArbre(uiAppRessources) +
+      ' octets de polices, ' +
+      compterFichiers(uiAppRessources) +
+      ' fichier(s))'
+  );
   console.log('[pack] paquet : ' + path.relative(ROOT, ipk) + ' (' + fs.statSync(ipk).size + ' octets)');
   if (SORTIE !== RELEASE) {
     console.log('[pack] paquet d essai : hors de release/ — ne pas publier (voir release/local/LISEZ-MOI-ESSAI.txt)');

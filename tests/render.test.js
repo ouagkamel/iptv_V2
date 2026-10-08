@@ -43,7 +43,7 @@ function bancDisponible() {
   return outilRender.bancDisponible();
 }
 
-/** Arborescence de lancement équivalente à celle du paquet : index.html + profils.js + ui/main.js. */
+/** Arborescence de lancement équivalente à celle du paquet : index.html + ui/ (bundle + polices). */
 function arborescenceDepuisBundle() {
   var dist = path.join(RACINE, 'ui', 'dist');
   if (!fs.existsSync(path.join(dist, 'main.js'))) return null;
@@ -52,8 +52,23 @@ function arborescenceDepuisBundle() {
   ['main.js', 'main.css'].forEach(function (nom) {
     copier(path.join(dist, nom), path.join(provisoire, 'ui', nom));
   });
+  // les ressources du theme (polices) accompagnent le CSS : sans elles, ni texte ni icones
+  creerDossiers(path.join(provisoire, 'ui', 'node_modules'));
+  copierArbre(path.join(dist, 'node_modules'), path.join(provisoire, 'ui', 'node_modules'));
   copier(path.join(RACINE, 'src', 'app', 'index.html'), path.join(provisoire, 'index.html'));
   return provisoire;
+}
+
+/** Copie recursive (les polices du theme sont rangees sous `node_modules/@enact/...`). */
+function copierArbre(source, cible) {
+  if (!fs.existsSync(source)) return;
+  creerDossiers(cible);
+  fs.readdirSync(source).forEach(function (nom) {
+    var depuis = path.join(source, nom);
+    var vers = path.join(cible, nom);
+    if (fs.statSync(depuis).isDirectory()) copierArbre(depuis, vers);
+    else copier(depuis, vers);
+  });
 }
 
 function bilanUtile(rapport) {
@@ -106,6 +121,29 @@ harness.describe('interface : aucune donnée de langue n est demandée au démar
     });
   });
 
+  harness.it('le thème Sandstone enveloppe l application et ses polices accompagnent la feuille de style', function () {
+    // 1) la source applique le décorateur a la racine, avant le rendu
+    var index = fs.readFileSync(path.join(RACINE, 'ui', 'src', 'index.js'), 'utf8');
+    assert.ok(index.indexOf("from '@enact/sandstone/ThemeDecorator'") !== -1, 'décorateur importé');
+    assert.ok(index.indexOf('ThemeDecorator(App)') !== -1, 'décorateur appliqué');
+    assert.ok(
+      index.indexOf('ThemeDecorator(App)') < index.indexOf('ReactDOM.render'),
+      'décorateur appliqué avant le rendu'
+    );
+
+    // 2) la feuille de style porte les regles du theme (police + couleur)…
+    var css = fs.readFileSync(path.join(RACINE, 'ui', 'dist', 'main.css'), 'utf8');
+    assert.ok(css.indexOf('@font-face') !== -1, 'polices déclarées (@font-face)');
+    assert.ok(/ThemeDecorator_ThemeDecorator_root/.test(css), 'règles du nœud racine du thème');
+    assert.ok(/font-family:"Sandstone"/.test(css) || /font-family: *"Sandstone"/.test(css), 'police Sandstone');
+
+    // 3) …et chaque ressource qu elle reclame existe dans l arborescence de lancement
+    var provisoire = arborescenceDepuisBundle();
+    assert.ok(provisoire !== null, 'bundle construit');
+    var manquantes = outilRender.ressourcesManquantes(provisoire);
+    assert.equal(manquantes.length, 0, 'ressources présentes : ' + JSON.stringify(manquantes.slice(0, 5)));
+  });
+
   harness.it('le bundle construit démarre sans requête et affiche les quatre cartes', function () {
     if (!bancDisponible()) return; // jsdom absent : test ignoré, jamais faussement vert
     var provisoire = arborescenceDepuisBundle();
@@ -116,6 +154,12 @@ harness.describe('interface : aucune donnée de langue n est demandée au démar
       .then(function (rapport) {
         assert.ok(rapport.verdict === 'OK', 'démarrage propre : ' + bilanUtile(rapport));
         assert.equal(rapport.requetes.length, 0, 'aucune requête : ' + JSON.stringify(rapport.requetes));
+        assert.ok(rapport.theme === true, 'thème Sandstone appliqué (sinon texte noir sur fond noir)');
+        assert.equal(
+          rapport.ressourcesManquantes.length,
+          0,
+          'polices du thème présentes : ' + JSON.stringify(rapport.ressourcesManquantes)
+        );
         assert.ok(rapport.racineHtml > 1000, 'écran rendu (' + rapport.racineHtml + ' octets de DOM)');
         ['Live TV', 'Films', 'Séries', 'Réglages'].forEach(function (carte) {
           assert.ok(
@@ -143,6 +187,12 @@ harness.describe('interface : aucune donnée de langue n est demandée au démar
       .then(function (rapport) {
         assert.ok(rapport.verdict === 'OK', path.relative(RACINE, paquet) + ' : ' + bilanUtile(rapport));
         assert.equal(rapport.requetes.length, 0, 'aucune requête depuis le paquet');
+        assert.ok(rapport.theme === true, 'thème appliqué dans le paquet');
+        assert.equal(
+          rapport.ressourcesManquantes.length,
+          0,
+          'polices du thème présentes dans le paquet : ' + JSON.stringify(rapport.ressourcesManquantes)
+        );
       });
   });
 });

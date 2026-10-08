@@ -121,6 +121,9 @@ class App extends React.Component {
 
 	render() {
 		const {vues, section, profil, messages, lecture, diagnostic} = this.state;
+		// `className` vient du ThemeDecorator (police, couleurs, fond) : il doit atteindre le nœud
+		// racine, sinon le thème est perdu (Sandstone le rappelle dans sa documentation).
+		const classes = this.props.className ? css.app + ' ' + this.props.className : css.app;
 		const valeur = {
 			profil,
 			majProfil: this.majProfil,
@@ -135,7 +138,7 @@ class App extends React.Component {
 
 		return (
 			<Fournisseur valeur={valeur}>
-				<Panels index={vues.length - 1} onBack={this.retour} className={css.app}>
+				<Panels index={vues.length - 1} onBack={this.retour} className={classes}>
 					<Panel className={css.panneau}>
 						<Header title="IPTV V2" subtitle={titreProfil} />
 						<Accueil sections={SECTIONS} />

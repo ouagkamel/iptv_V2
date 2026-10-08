@@ -1,5 +1,45 @@
 # Journal d'exécution
 
+## 2026-10-08 — Toujours noir, mais sans erreur : le thème n'était pas appliqué (0.1.10)
+
+**Ce qui a été observé** (simulateur, paquet 0.1.9) : plus aucune erreur, `main.js` en 200… et
+toujours un écran noir.
+
+**Ce qui a été mis en place pour le voir.** Le banc jsdom vérifiait le **DOM** (texte présent, aucune
+requête) : il ne pouvait pas distinguer « l'écran est beau » de « l'écran est noir ». Un vrai moteur de
+rendu a donc été utilisé (Chromium, `tools/inspecter-rendu.js`) : chargement du paquet en `file://`,
+capture d'écran, styles calculés. La capture a montré le défaut immédiatement — **du texte noir sur
+fond noir** : les quatre cartes étaient là, mais illisibles, y compris le titre.
+
+**Deux causes, indépendantes.**
+
+| Réf. | Constat | Correctif |
+|---|---|---|
+| **D-38** | Le **thème Sandstone n'était pas appliqué** : `App` était rendu directement dans `#root`, sans passer par `ThemeDecorator`. Ce décorateur est ce qui pose la police (`Sandstone`), la couleur de texte (`rgb(230,230,230)`), le fond, le Spotlight (télécommande) et la resolution independence. Sans lui : police Times New Roman, couleur noire, aucune erreur | `ui/src/index.js` applique `ThemeDecorator(App)` avant le rendu ; `ui/src/App/App.js` transmet la classe reçue (`this.props.className`) à son nœud racine, comme Sandstone l'exige |
+| **D-39** | Les **polices du thème manquaient dans les livrables** : le build Enact laisse les fichiers sous `ui/dist/node_modules/@enact/sandstone/fonts/` et `main.css` les réclame par un chemin relatif, mais l'empaquetage ne recopiait que `main.js` et `main.css` — `copyTree`, lui, ignore `node_modules` par principe. Résultat : 3 polices en 404 (dont `Sandstone_Icons`) — et les pictogrammes absents | `tools/make-package.js` : exception explicite `autoriserNodeModules` réservée aux ressources du thème, contrôle d'échec si `Sandstone_Icons.ttf` manque, et copie également dans la copie d'inspection (dont le pack simulateur et `dist/` sont tirés) |
+
+**Ce qui n'était pas un défaut** : les pictogrammes des tuiles utilisent la police système **« LG
+Icons »** (fournie par les téléviseurs LG, cf. `sandstone/Icon/Icon.module.css`). Hors TV LG, elle
+n'existe pas et Sandstone affiche le nom à la place (« liv », « mo »…). C'est le comportement prévu par
+Enact ; à noter dans la feuille de route, pas à corriger dans le paquet.
+
+**Outillage renforcé — le banc ne se contentait pas de regarder le texte.**
+
+| Ajout | Ce qu'il attrape |
+|---|---|
+| `tools/render-app.js` : `theme` (le premier enfant de `#root` doit porter la classe du décorateur) | l'application se rend, mais **sans thème** → noir sur noir |
+| `tools/render-app.js` : `ressourcesManquantes` (chaque `url(...)` de `main.css` résolu à côté) | les polices du thème absentes du paquet |
+| `tools/inspecter-rendu.js` | contrôle **visuel** : styles calculés de la police, de la couleur, des fonds, plus capture d'écran — le seul contrôle qui aurait montré le défaut tel quel |
+| `tests/render.test.js` | thème appliqué (source + CSS + DOM), polices présentes dans le bundle **et** dans le paquet (`release/package` / `dist/<version>/app`) |
+
+**Contre-épreuves exécutées** : polices retirées de l'arborescence → `ECHEC`
+(`ressourcesManquantes` non vide) ; `ThemeDecorator` retiré du bundle → `ECHEC` (`theme: false`),
+**sans aucune erreur ni requête** — exactement la page noire silencieuse.
+
+**Contrôles** : `npm test` → **203 tests, 0 échec** ; `lint:node812`, `check:deps` OK ; banc jsdom sur le
+paquet d'essai → `verdict OK`, `theme: true`, `ressourcesManquantes: []`, `requetes: []` ; Chromium →
+police `Sandstone`, couleur `rgb(230,230,230)`, aucune ressource en échec, capture lisible.
+
 ## 2026-10-08 — Un paquet d'essai a été publié : contrôle des pièces téléversées (D-37)
 
 **Ce qui s'est passé.** La publication du 0.1.9 a téléversé le paquet **d'essai** — celui qui porte le

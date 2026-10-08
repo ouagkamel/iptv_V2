@@ -56,13 +56,15 @@ Le service écrit au minimum `[iptv] demarrage du service ... (node v8.12.x)` pu
 pas, le service n'a jamais été lancé (enregistrement côté plateforme) ; si elle apparaît sans la
 seconde, la cause est affichée juste après (chargement `lib/service/main.js` impossible).
 
-**Écran noir au lancement** (défaut corrigé en 0.1.9, voir `docs/JOURNAL.md` D-35) : Enact charge des
-données de langue au premier `$L()`, en **synchrone** — si le paquet n'embarque pas
-`node_modules/ilib/locale/ilibmanifest.json`, l'XHR synchrone échoue en `file://` et React démonte
-l'arbre. Le paquet 0.1.9 neutralise ce chargement (`ui/src/services/sansLocales.js`). Si la page reste
-noire, vérifier d'abord que la version installée est bien la 0.1.9
-(`ares-install --device tv --listfull`), puis reproduire hors TV :
-`node tools/render-app.js release/package`.
+**Écran noir au lancement** — trois causes corrigées (voir `docs/JOURNAL.md`, D-35, D-38, D-39) :
+
+1. chargement **synchrone** des données de langue d'Enact (0.1.9, `ui/src/services/sansLocales.js`) ;
+2. **thème Sandstone jamais appliqué** : texte noir sur fond noir, sans erreur (0.1.10) ;
+3. **polices du thème absentes** du paquet (0.1.10).
+
+Si la page reste noire, vérifier la version installée (`ares-install --device tv --listfull`), puis
+reproduire hors TV : `node tools/render-app.js release/package` (démarrage, thème, ressources) et
+`node tools/inspecter-rendu.js release/package` (contraste, capture d'écran).
 
 **Au lancement, l'interface doit afficher l'accueil à quatre cartes.** Le parcours minimal de la
 0A : *Live TV* → les catégories apparaissent (elles viennent de l'index, aucun appel fournisseur) →

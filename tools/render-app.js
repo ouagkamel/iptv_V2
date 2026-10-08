@@ -36,6 +36,32 @@ function chargerJsdom() {
 }
 
 /**
+ * Ressources referencees par la feuille de style de l'interface (`url(...)`) qui **manquent** dans
+ * l'arborescence testee. C'est ce controle qui aurait attrape le plus discret des defauts de la page
+ * noire : le build Enact laisse les polices du theme sous `node_modules/@enact/sandstone/fonts/` et
+ * `main.css` les reclame par un chemin relatif ; un empaquetage qui ne recopie que `main.css` laisse
+ * ces fichiers derriere lui — texte et icones disparaissent alors sans la moindre erreur JavaScript.
+ */
+function ressourcesManquantes(racine) {
+  var feuille = path.join(racine, 'ui', 'main.css');
+  if (!fs.existsSync(feuille)) return [];
+  var css = fs.readFileSync(feuille, 'utf8');
+  var manquantes = [];
+  var motif = /url\(\s*['"]?([^'")]+)['"]?\s*\)/g;
+  var trouve;
+  while ((trouve = motif.exec(css)) !== null) {
+    var chemin = trouve[1];
+    if (/^(data:|https?:|#)/.test(chemin)) continue;
+    var absolu = path.resolve(path.dirname(feuille), chemin);
+    if (!fs.existsSync(absolu)) manquantes.push(chemin);
+    else if (manquantes.indexOf(chemin) === -1 && manquantes.length === 0 && false) manquantes.push(chemin);
+  }
+  return manquantes.filter(function (chemin, index) {
+    return manquantes.indexOf(chemin) === index;
+  });
+}
+
+/**
  * Execute l'application et renvoie un rapport.
  *
  * @param {String} racine repertoire de l'application (celui qui contient `index.html`)
@@ -165,13 +191,26 @@ function executerBanc(racine, attente) {
     setTimeout(function () {
       var racineDom = fenetre.document.getElementById('root');
       var texte = racineDom ? (racineDom.textContent || '').replace(/\s+/g, ' ').trim() : '';
+      // Le theme de Sandstone est **le premier enfant de `#root`** : il enveloppe l'application et
+      // porte la classe de son module (police, couleur, fond). Sans lui, l'application se rend
+      // directement dans `#root` — et le texte reste noir sur fond noir (D-38).
+      var premier = racineDom ? racineDom.firstElementChild : null;
+      var theme = !!(premier && /Decorator/.test(premier.className || ''));
+      var ressources = ressourcesManquantes(RACINE);
       resolve({
         verdict:
-          requetesRatees.length === 0 && erreurs.length === 0 && racineDom && racineDom.innerHTML.length > 0
+          requetesRatees.length === 0 &&
+          erreurs.length === 0 &&
+          ressources.length === 0 &&
+          theme &&
+          racineDom &&
+          racineDom.innerHTML.length > 0
             ? 'OK'
             : 'ECHEC',
         racineHtml: racineDom ? racineDom.innerHTML.length : 0,
         texteRendu: texte,
+        theme: theme,
+        ressourcesManquantes: ressources,
         requetes: requetes,
         requetesRatees: requetesRatees,
         erreurs: erreurs
@@ -183,6 +222,7 @@ function executerBanc(racine, attente) {
 
 module.exports = {
   executerBanc: executerBanc,
+  ressourcesManquantes: ressourcesManquantes,
   /** jsdom est-il utilisable ici ? (les tests s'ignorent proprement quand il manque) */
   bancDisponible: function () {
     try {

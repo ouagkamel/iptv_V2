@@ -90,11 +90,14 @@ var NEUTRE = [
   ''
 ].join('\n');
 
+// Valeurs **fictives** : le dépôt ne contient jamais les identifiants du compte de test (le test
+// « mécanisme sans secret » de `package.test.js` monte la garde). Le cas du secret réel est couvert
+// plus bas, en le lisant à l'exécution depuis `secrets.local/profils.js`.
 var AVEC_SOURCE = [
   "'use strict';",
   'window.iptvProfils = {',
   '  sources: [',
-  "    {id: 'p1', nom: 'Portail', url: 'http://kdfgh.com:8080', username: 'tjubfkkz', password: '789966423'}",
+  "    {id: 'p1', nom: 'Portail', url: 'http://exemple.invalid:8080', username: 'utilisateur-exemple', password: 'mot-de-passe-exemple'}",
   '  ]',
   '};',
   ''
@@ -130,7 +133,7 @@ harness.describe('paquets : lecture du format et sources déclarées', function 
     assert.ok(noms.indexOf('usr/palm/services/com.test.app.service/services.json') !== -1, 'service lu');
     assert.ok(ipk.profils(fichier).indexOf("id: 'p1'") !== -1, 'profils.js lu');
     assert.equal(ipk.sourcesDeclarees(ipk.profils(fichier)).join(','), 'p1');
-    assert.ok(ipk.contient(fichier, '789966423'), 'identifiant retrouvé dans le paquet');
+    assert.ok(ipk.contient(fichier, 'mot-de-passe-exemple'), 'identifiant retrouvé dans le paquet');
     assert.ok(!ipk.contient(fichier, 'motif-absent-xyz'), 'motif absent non trouvé');
   });
 
@@ -143,6 +146,30 @@ harness.describe('paquets : lecture du format et sources déclarées', function 
 
     var propre = ipkSynthetique(dossier, NEUTRE, 'livraison-propre.ipk');
     assert.equal(refus(propre).length, 0, 'paquet sans source accepté');
+  });
+
+  harness.it('un paquet qui contient un identifiant réel du compte de test est refusé', function () {
+    var local = path.join(ROOT, 'secrets.local', 'profils.js');
+    if (!fs.existsSync(local)) return; // hors dépôt : le test s'ignore proprement
+
+    // le secret est lu **à l'exécution** et n'est jamais recopié dans un fichier suivi
+    var secret = /password:\s*'([^']+)'/.exec(fs.readFileSync(local, 'utf8'));
+    if (!secret) return;
+
+    var dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'iptv-ipk-'));
+    var fichier = ipkSynthetique(
+      dossier,
+      ["'use strict';", 'window.iptvProfils = {sources: [{id: \'p1\', password: \'' + secret[1] + '\'}]};', ''].join('\n'),
+      'fuite.ipk'
+    );
+    var refus = require(path.join(ROOT, 'tools', 'publish-release')).refusIpk(fichier);
+    assert.ok(refus.length > 0, 'refus attendu');
+    assert.ok(
+      refus.some(function (motif) {
+        return motif.indexOf('identifiant du compte de test') !== -1;
+      }),
+      'le motif d identifiant est nommé : ' + refus.join(' | ')
+    );
   });
 
   harness.it('les paquets présents sur la machine sont conformes à leur rôle', function () {
