@@ -34,11 +34,18 @@ function creerDossiers(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 }
 
-function executer(script) {
+function executer(script, environnement) {
+  var env = {};
+  Object.keys(process.env).forEach(function (cle) {
+    env[cle] = process.env[cle];
+  });
+  Object.keys(environnement || {}).forEach(function (cle) {
+    env[cle] = environnement[cle];
+  });
   var resultat = childProcess.spawnSync(process.execPath, [path.join(__dirname, script)], {
     stdio: 'inherit',
     cwd: ROOT,
-    env: process.env
+    env: env
   });
   if (resultat.status !== 0) {
     console.error('[local] ' + script + ' a echoue (code ' + resultat.status + ')');
@@ -134,26 +141,46 @@ function main() {
     process.exit(1);
   }
 
+  creerDossiers(LOCAL);
+  // le `.ipk` d'essai est ecrit **directement** dans `release/local/` : il ne peut plus ecraser le
+  // paquet publiable de `release/` (c'est ainsi qu'un paquet d'essai a ete publie une fois).
   executer('build-ui.js');
-  executer('make-package.js');
+  executer('make-package.js', { IPTV_SORTIE: path.relative(ROOT, LOCAL) });
   executer('stage-simulator.js');
 
   var appinfo = JSON.parse(fs.readFileSync(path.join(ROOT, 'appinfo.json'), 'utf8'));
   var version = appinfo.version;
   var ipk = fs
-    .readdirSync(RELEASE)
+    .readdirSync(LOCAL)
     .filter(function (nom) {
       return /\.ipk$/.test(nom) && nom.indexOf('_' + version + '_') !== -1;
     })
     .sort()[0];
   if (!ipk) {
-    console.error('[local] paquet ' + version + ' introuvable dans release/');
+    console.error('[local] paquet ' + version + ' introuvable dans release/local/');
     process.exit(1);
   }
 
-  creerDossiers(LOCAL);
   var cibleIpk = path.join(LOCAL, ipk);
-  fs.copyFileSync(path.join(RELEASE, ipk), cibleIpk);
+
+  // Contrôle positif : un paquet d'essai **doit** porter la source préconfigurée, sinon l'utilisateur
+  // retrouverait un écran vide en croyant tester la livraison d'essai.
+  var declare = require('./ipk').profils(cibleIpk) || '';
+  if (!/sources\s*:\s*\[\s*\{/.test(declare)) {
+    console.error(
+      '[local] ' + ipk + ' ne contient pas de source preconfiguree :\n' +
+        '  verifier secrets.local/profils.js (window.iptvProfils = {sources: [{id, nom, url, ...}]})'
+    );
+    process.exit(2);
+  }
+  console.log('[local] source preconfiguree : presente dans le paquet d essai');
+
+  // nettoyage d'un eventuel reste d'une execution anterieure dans release/
+  var reste = path.join(RELEASE, ipk);
+  if (fs.existsSync(reste)) {
+    fs.unlinkSync(reste);
+    console.log('[local] retire de release/ : ' + ipk + ' (un paquet d essai ne reste pas la ou la publication prend ses pieces)');
+  }
 
   var zip = path.join(LOCAL, version + '-simulateur-source.zip');
   if (fs.existsSync(zip)) fs.unlinkSync(zip);

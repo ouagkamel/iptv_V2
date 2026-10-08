@@ -135,31 +135,77 @@ function televerser(uploadUrl, fichier) {
  *
  *   IPTV_SANS_SOURCES=1 npm run dist
  */
-/** Retire commentaires de bloc et de ligne : le fichier du dépôt **documente** une source en
- * commentaire, ce qui ne doit pas être confondu avec une source réellement déclarée. */
+/** Retire commentaires de bloc et de ligne (voir `tools/ipk.js`) : le fichier du dépôt
+ * **documente** une source en commentaire, ce qui n'est pas une source déclarée. */
 function sansCommentaires(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  return require('./ipk').sansCommentaires(source);
 }
 
 function verifierSansSecrets(version) {
   var profils = path.join(ROOT, 'dist', version, 'app', 'profils.js');
   if (!fs.existsSync(profils)) return;
-  var contenu = sansCommentaires(fs.readFileSync(profils, 'utf8'));
-  var declaration = /window\.iptvProfils\s*=([\s\S]*?);/.exec(contenu);
-  if (!declaration) return;
-  var liste = /sources\s*:\s*\[([\s\S]*?)\]/.exec(declaration[1]);
-  if (liste && liste[1].trim() !== '') {
+  var declarees = require('./ipk').sourcesDeclarees(fs.readFileSync(profils, 'utf8'));
+  if (declarees.length > 0) {
     console.error(
-      'Publication refusee : dist/' + version + '/app/profils.js contient des sources preconfigurees\n' +
-        '(identifiants de compte). Reconstruire une livraison publiable : IPTV_SANS_SOURCES=1 npm run dist'
+      'Publication refusee : dist/' + version + '/app/profils.js declare ' + declarees.length +
+        ' source(s) preconfiguree(s) (' + declarees.join(', ') + ').\n' +
+        'Reconstruire une livraison publiable : IPTV_SANS_SOURCES=1 npm run dist'
     );
     process.exit(3);
   }
 }
 
+/**
+ * Contrôle des **pièces réellement téléversées**, paquet par paquet : c'est le fichier qui part sur
+ * GitHub qui est ouvert, pas le dossier dont il est censé venir. Un `.ipk` qui déclare des sources
+ * préconfigurées (identifiants de compte) est refusé — sans exception, quel que soit son emplacement.
+ *
+ * Le 0.1.9 a été publié une fois avec le paquet d'essai parce que la publication prenait l'`.ipk`
+ * dans `release/`, où le pack d'essai venait d'écraser celui de la livraison : la vérification
+ * portait sur `dist/` et le fichier téléversé venait d'ailleurs. Les pièces viennent maintenant de
+ * `dist/<version>/`, et le contenu est relu **dans l'archive**.
+ */
+/** Motifs de refus d'un `.ipk`, sans effet de bord : `[]` si le paquet est publiable. */
+function refusIpk(chemin) {
+  var ipk = require('./ipk');
+  var contenu = ipk.profils(chemin);
+  var declarees = ipk.sourcesDeclarees(contenu);
+  var refus = [];
+
+  if (declarees.length > 0) {
+    refus.push('il declare ' + declarees.length + ' source(s) preconfiguree(s) : ' + declarees.join(', '));
+  }
+  var local = path.join(ROOT, 'secrets.local', 'profils.js');
+  if (fs.existsSync(local)) {
+    var identifiants = fs.readFileSync(local, 'utf8');
+    [/'http:\/\/([^':]+)/, /username:\s*'([^']+)'/, /password:\s*'([^']+)'/].forEach(function (motif) {
+      var trouve = motif.exec(identifiants);
+      if (trouve && ipk.contient(chemin, trouve[1])) {
+        refus.push('il contient un identifiant du compte de test (motif de ' + trouve[1].length + ' caracteres)');
+      }
+    });
+  }
+
+  return refus;
+}
+
+/** Applique le refus : la publication s'arrete (code 3) avant tout televersement. */
+function verifierIpkSansIdentifiants(chemin) {
+  var refus = refusIpk(chemin);
+  if (refus.length > 0) {
+    console.error(
+      'Publication refusee : ' + path.relative(ROOT, chemin) + '\n' +
+        '  - ' + refus.join('\n  - ') + '\n' +
+        'Reconstruire une livraison publiable : IPTV_SANS_SOURCES=1 npm run dist'
+    );
+    process.exit(3);
+  }
+  console.log('  controle : ' + path.basename(chemin) + ' sans identifiants');
+}
+
 function piecesJointes(version) {
   return [
-    path.join(ROOT, 'release', 'com.ouagkamel.app.iptvplayer_' + version + '_all.ipk'),
+    path.join(ROOT, 'dist', version, 'com.ouagkamel.app.iptvplayer_' + version + '_all.ipk'),
     path.join(ROOT, 'dist', version + '.zip'),
     path.join(ROOT, 'dist', version + '-simulateur.zip'),
     path.join(ROOT, 'dist', version, 'SHA256SUMS.txt')
@@ -170,6 +216,7 @@ function piecesJointes(version) {
 
 function creer(balise, version, notes) {
   verifierSansSecrets(version);
+  piecesJointes(version).filter(function (f) { return /\.ipk$/.test(f); }).forEach(verifierIpkSansIdentifiants);
   var corps = lire(notes);
   return appel('POST', '/repos/' + REPO + '/releases', {
     tag_name: balise,
@@ -227,4 +274,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { piecesJointes: piecesJointes };
+module.exports = { piecesJointes: piecesJointes, refusIpk: refusIpk };

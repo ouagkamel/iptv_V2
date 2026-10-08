@@ -1,5 +1,37 @@
 # Journal d'exécution
 
+## 2026-10-08 — Un paquet d'essai a été publié : contrôle des pièces téléversées (D-37)
+
+**Ce qui s'est passé.** La publication du 0.1.9 a téléversé le paquet **d'essai** — celui qui porte le
+compte de test — comme pièce jointe de la livraison : l'`.ipk` public de 492 602 octets a été remplacé
+par celui de 492 384 octets. Les trois motifs d'identifiants ont été retrouvés dans l'archive
+téléchargée (contrôle après coup, puis retrait immédiat de la pièce).
+
+**Pourquoi le garde-fou n'a rien vu.**
+
+| Maillon | Ce qu'il faisait |
+|---|---|
+| `tools/make-package.js` | écrivait le `.ipk` dans `release/`, quel que soit l'appelant |
+| `npm run dist:local` | y écrivait le paquet **d'essai**, écrasant celui de la livraison |
+| `tools/publish-release.js` | vérifiait `dist/<version>/app/profils.js` (propre)… mais téléversait `release/<id>_<version>_all.ipk` (l'essai) |
+
+Le contrôle portait donc sur un dossier, l'envoi sur un autre. C'est le type de vérification qui donne
+l'illusion d'être protégé : elle était vraie, mais elle ne regardait pas le fichier qui partait.
+
+**Correctifs.**
+
+| Réf. | Correctif |
+|---|---|
+| **D-37a** | `tools/ipk.js` (nouveau, sans dépendance) : un `.ipk` est relu **à la main** (`ar` → `data.tar.gz` → `tar`) pour retrouver `app/profils.js`, les sources déclarées et n'importe quel motif d'identifiant — sans `tar` ni `ar` installés |
+| **D-37b** | `tools/publish-release.js` : les pièces viennent de `dist/<version>/` (jamais de `release/`) et **chaque `.ipk` téléversé est ouvert et refusé** (code 3) s'il déclare des sources ou contient un identifiant du compte de test |
+| **D-37c** | `tools/make-local.js` : le paquet d'essai est écrit directement dans `release/local/` (`IPTV_SORTIE`), ne touche plus `release/`, et un contrôle **positif** vérifie qu'il porte bien la source préconfigurée (sinon l'essai serait faussé) |
+| **D-37d** | `tests/ipk.test.js` : format relu sur un `.ipk` fabriqué dans le test (ar + tar + gzip écrits à la main), refus d'un paquet d'essai, acceptation d'une livraison propre, et conformité des paquets présents sur la machine |
+
+**Contrôles** : `npm test` → **201 tests, 0 échec** ; paquet public → 0 refus, paquet d'essai → 4 refus
+(sources déclarées + les trois motifs d'identifiants) ; `release/` ne contient plus aucun `.ipk`.
+Leçon retenue, écrite ici parce qu'elle vaut pour toute la suite : **contrôler l'artefact envoyé, pas
+le dossier dont il est censé venir.**
+
 ## 2026-10-08 — Écran noir du simulateur : le chargeur de langues d'Enact (0.1.9)
 
 **Ce qui a été observé** (simulateur webOS, paquet 0.1.8, application prête puis page noire) :

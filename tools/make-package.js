@@ -25,6 +25,10 @@ var ROOT = path.join(__dirname, '..');
 var SERVICE_DIR = path.join(ROOT, 'service', 'com.ouagkamel.app.iptvplayer.service');
 var APP_SRC = path.join(ROOT, 'src', 'app');
 var RELEASE = path.join(ROOT, 'release');
+// Sortie du `.ipk` : `release/` (livraison publiable) ou `IPTV_SORTIE=release/local` pour un pack
+// d'essai. Le pack d'essai ne doit **jamais** ecraser le paquet publiable : la publication prend ses
+// pieces dans `dist/`, et un `release/` melange a deja fait partir un paquet avec identifiants.
+var SORTIE = process.env.IPTV_SORTIE ? path.resolve(ROOT, process.env.IPTV_SORTIE) : RELEASE;
 
 function read(file) {
   return fs.readFileSync(file, 'utf8');
@@ -126,9 +130,9 @@ function main() {
     console.log('[pack] sources preconfigurees : secrets.local/profils.js integre (hors depot)');
   }
 
-  creerDossiers(RELEASE);
+  creerDossiers(SORTIE);
   var commande = aresPackageCommand();
-  var argumentsOutils = [appDir, SERVICE_DIR, '-o', RELEASE, '--no-minify'];
+  var argumentsOutils = [appDir, SERVICE_DIR, '-o', SORTIE, '--no-minify'];
   console.log('[pack] ' + commande + ' ' + argumentsOutils.join(' '));
 
   var resultat = childProcess.spawnSync(commande, argumentsOutils, { stdio: 'inherit', cwd: ROOT });
@@ -142,17 +146,17 @@ function main() {
   if (resultat.status !== 0) fail('ares-package a echoue (code ' + resultat.status + ')');
 
   var ipk = fs
-    .readdirSync(RELEASE)
+    .readdirSync(SORTIE)
     .filter(function (name) {
       return /\.ipk$/.test(name);
     })
     .map(function (name) {
-      return path.join(RELEASE, name);
+      return path.join(SORTIE, name);
     })
     .sort(function (a, b) {
       return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
     })[0];
-  if (!ipk) fail('aucun .ipk produit dans ' + RELEASE);
+  if (!ipk) fail('aucun .ipk produit dans ' + SORTIE);
 
   // 4) copie lisible du contenu du paquet (inspection sans dépaqueter l'ipk)
   var inspection = path.join(RELEASE, 'package');
@@ -161,6 +165,9 @@ function main() {
   copyTree(SERVICE_DIR, path.join(inspection, 'service', serviceName));
 
   console.log('[pack] paquet : ' + path.relative(ROOT, ipk) + ' (' + fs.statSync(ipk).size + ' octets)');
+  if (SORTIE !== RELEASE) {
+    console.log('[pack] paquet d essai : hors de release/ — ne pas publier (voir release/local/LISEZ-MOI-ESSAI.txt)');
+  }
   console.log('[pack] contenu : ' + path.relative(ROOT, inspection));
   console.log('[pack] installation : ares-install --device <nom> ' + path.relative(ROOT, ipk));
   removeTree(staging);
