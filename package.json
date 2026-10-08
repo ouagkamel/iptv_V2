@@ -1,6 +1,6 @@
 {
   "name": "iptv-webos-v2",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "description": "Lecteur IPTV pour LG webOS 6+ — application Empaquetée (Enact 3.4.9) + service JS (Node 8.12)",
   "license": "UNLICENSED",
@@ -27,7 +27,8 @@
   },
   "devDependencies": {
     "@types/node": "^8.10.66",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "jsdom": "^29.1.1"
   },
   "comments": {
     "dependencies": "Zéro dépendance d'exécution : le service tourne sur Node 8.12 embarqué (§2.3). Les devDependencies ne sont jamais empaquetées."

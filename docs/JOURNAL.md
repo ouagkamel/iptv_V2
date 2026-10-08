@@ -1,5 +1,45 @@
 # Journal d'exécution
 
+## 2026-10-08 — Écran noir du simulateur : le chargeur de langues d'Enact (0.1.9)
+
+**Ce qui a été observé** (simulateur webOS, paquet 0.1.8, application prête puis page noire) :
+
+```
+[iptv-ui] application prete (pont LS2 : PalmServiceBridge)
+main.js:2 DOMException: Failed to execute 'send' on 'XMLHttpRequest':
+  Failed to load 'file:///.../app/node_modules/ilib/locale/ilibmanifest.json'
+```
+
+**Cause racine, reconstituée puis reproduite hors navigateur.** Enact charge des données de langue au
+premier `$L()` d'un composant Sandstone (`Header`, `useScroll`, `MediaPlayer`…), et il le fait en
+**synchrone** :
+
+| Étape | Appel |
+|---|---|
+| 1 | `$L('…')` → `toIString()` |
+| 2 | `toIString()` → `createResBundle()` (`@enact/i18n/src/resBundle.js`) → `new ilib.ResBundle` (`sync: true` par défaut) |
+| 3 | `ResBundle` → `IString.loadPlurals()` → `Utils.loadData({sync: true})` |
+| 4 | `Utils._callLoadData()` → `EnyoLoader.loadFiles(paths, sync=true)` |
+| 5 | `loadFiles` → `loadManifestsSync()` → `_loadManifest()` → `XMLHttpRequest` **synchrone** |
+
+En `file://`, un XHR synchrone vers un fichier **absent** lève une exception (Chromium), et cette
+exception remonte au milieu d'un rendu React : l'arbre est démonté, **l'écran reste noir**. Le paquet
+0.1.8 ne contenait aucune donnée iLib (option `ILIB_ASSET_EMIT=false`) donc rien à lire : le
+`ilibmanifest.json` manquait, et le commentaire qui affirmait que `ILIB_NO_ASSETS` évitait les
+requêtes au démarrage **était faux** (rien, à l'exécution, ne lit cette constante dans Enact 3.4.9).
+
+| Réf. | Constat | Correctif |
+|---|---|---|
+| **D-34** | Aucun moyen de reproduire un défaut d'interface sans le simulateur : « ça marche ici » ne voulait rien dire | `tools/render-app.js` : banc **headless** (jsdom) qui exécute le paquet réel (`index.html`, `profils.js`, `ui/main.js`) avec un `XMLHttpRequest` imitant Chromium en `file://` — fichier présent : statut 0 + corps ; fichier absent : exception. Il rapporte requêtes, requêtes ratées, erreurs et DOM rendu |
+| **D-35** | Écran noir : `$L()` déclenchait un chargement **synchrone** de données de langue, introuvables dans le paquet | `ui/src/services/sansLocales.js`, appelé avant tout rendu : **chargeur inerte** (`ilib.setLoaderCallback`) — toute demande de données reçoit « rien », aucun XHR n'est émis — et **paquet de chaînes vide** (`setResBundle`) — `$L()` renvoie la chaîne source, comme Enact le fait pour une traduction absente. Conséquence assumée : les libellés internes de Sandstone restent en anglais ; ceux de l'application sont écrits en français dans le code |
+| **D-36** | Un test qui se contente de « ça compile » ne protège pas du défaut | `tests/render.test.js` : la source neutralise i18n avant le rendu, aucun module de `ui/src` ne demande de fichier de langue, et le **bundle réel** exécuté dans le banc n'émet **aucune requête**, ne produit **aucune erreur** et rend bien les quatre cartes. Contre-épreuve faite : correctif retiré → le test échoue (`195 OK, 1 échec`) |
+
+**Contrôles du tour** : `npm test` → **196 tests, 0 échec** (Node 20 **et** Node 8.12) ;
+`lint:node812`, `check:deps`, `typecheck` OK ; banc headless sur le paquet : `requetes: []`,
+`erreurs: []`, accueil rendu (« IPTV V2 | Live TV | Films | Séries | Réglages »), source
+préconfigurée lue depuis `profils.js`.
+
+
 ## 2026-10-07 (suite 2) — Interface Enact (V1-A), libellés de champs et paquet 0.1.8
 
 **Étape 3 : l'interface Enact est écrite et se construit.** `ui/` contient un projet Enact autonome

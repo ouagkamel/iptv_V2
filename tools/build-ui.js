@@ -14,8 +14,10 @@
  *
  *  2. **Données iLib** — le plugin iLib copie par défaut les 82 Mio de locales dans `dist/` : un
  *     `.ipk` de cette taille n'a aucun sens sur une TV. L'interface n'affiche que du texte français
- *     en dur et n'utilise aucune API de localisation : `ILIB_ASSET_EMIT=false` produit un bundle de
- *     ~1 Mo qui déclare `ILIB_NO_ASSETS` (aucune requête de locale au démarrage).
+ *     en dur : `ILIB_ASSET_EMIT=false` produit un bundle de ~1 Mo. **Attention** : ce drapeau ne
+ *     dispense PAS le moteur de demander ses fichiers de langue — le 0.1.8 est parti à l'écran noir
+ *     pour cette raison (D-35). C'est `ui/src/services/sansLocales.js` qui neutralise le chargeur
+ *     avant le premier rendu, et `tests/render.test.js` qui le vérifie sur le bundle réel.
  *
  *  3. **Dépendances** — l'interface a son propre `package.json`/`package-lock.json` : le message
  *     d'erreur dit exactement quoi exécuter, plutôt que de laisser webpack signaler un module absent.

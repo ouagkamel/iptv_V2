@@ -12,7 +12,11 @@ import React from 'react';
 import ReactDOM from 'react-dom';
 
 import '../../src/app/webos-bridge.js';
+import installerLangueSansDonnees from './services/sansLocales';
 import App from './App/App';
+
+// avant tout rendu : aucune donnee de langue ne sera demandee (voir services/sansLocales.js)
+installerLangueSansDonnees();
 
 ReactDOM.render(<App />, document.getElementById('root'), function () {
   console.log('[iptv-ui] application prete (pont LS2 : ' + (window.webOS && window.webOS.__pont ? window.webOS.__pont.chemin : 'inconnu') + ')');

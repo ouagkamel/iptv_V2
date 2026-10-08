@@ -10,7 +10,9 @@ release/
 # sources preconfigurees avec identifiants (remplace src/app/profils.js a l'empaquetage)
 secrets.local/
 
-# artefacts de build de l'interface (Enact)
+# artefacts de build de l'interface (Enact) : dossiers produits par `npm run build:ui`
+ui/resources/
+ui/dist/
 .sandstone/
 webos-meta/build/
 *.log
