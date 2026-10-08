@@ -14,7 +14,10 @@
  *  4. le faux bus applique la règle de DB8 (`-3965 db: no index for query`) : un dépôt qui
  *     interrogerait un champ non indexé échoue dans les tests, pas sur la TV ;
  *  5. le parcours complet (import → lecture du catalogue → diagnostic) fonctionne sur ce bus strict,
- *     et la sonde DB8 rend compte de l'état réel de la base.
+ *     et la sonde DB8 rend compte de l'état réel de la base ;
+ *  6. le **pont LS2** lit la réponse du hub là où elle est : `message.payload`. Lue au premier niveau,
+ *     elle était vide — un `putKind` réussi passait pour refusé (« création du kind DB8 refusée »,
+ *     D-41) et une lecture servie passait pour vide (D-40).
  */
 
 var assert = require('./assert');
@@ -29,6 +32,7 @@ var clientLib = require(path.join(libRoot, 'service', 'http', 'httpClient'));
 var db8Lib = require(path.join(libRoot, 'service', 'db8', 'client'));
 var reposLib = require(path.join(libRoot, 'service', 'db8', 'repositories'));
 var serviceLib = require(path.join(libRoot, 'service', 'ls2', 'service'));
+var mainLib = require(path.join(libRoot, 'service', 'main'));
 var busLib = require(path.join(libRoot, 'service', 'ls2', 'bus'));
 
 var PORTAL_URL = 'https://portal.example.com';
@@ -116,6 +120,18 @@ harness.describe('DB8 : les kinds déclarent leurs index et les requêtes resten
         assert.ok(putKind.params.indexes && putKind.params.indexes.length === 1, 'index déclaré');
         assert.equal(putKind.params.indexes[0].props[0].name, 'id', 'champ indexé : id');
         assert.equal(putKind.params.private, true, 'kind privé (supprimé avec l application)');
+        // schema `putKind` : id, owner, private, indexes -- rien d autre (`additionalProperties: false`)
+        assert.deepEqual(
+          Object.keys(putKind.params).sort(),
+          ['id', 'indexes', 'owner', 'private'],
+          'charge utile putKind exacte : ' + Object.keys(putKind.params).join(',')
+        );
+        var put = appels.filter(function (appel) {
+          return appel.uri.indexOf('/put') !== -1 && appel.uri.indexOf('/putKind') === -1;
+        })[0];
+        assert.ok(put, 'put appelé');
+        // schema `put` : `objects` (et `shardId`) seulement -- `private` y est refuse
+        assert.deepEqual(Object.keys(put.params), ['objects'], 'charge utile put exacte');
       })
       .then(function () {
         // tous les kinds déclarent au moins un index : sans lui, aucune requête ne peut aboutir
@@ -157,7 +173,10 @@ harness.describe('DB8 : les kinds déclarent leurs index et les requêtes resten
         indexes: [{ name: 'cle', props: [{ name: 'cle' }] }]
       })
       .then(function () {
-        return bus.call('luna://' + db8Lib.DB_SERVICE + '/find', { query: { where: { _kind: kind, absent: 'x' } } });
+        // `from` + `where` en tableau de clauses : la seule forme acceptee par le service
+        return bus.call('luna://' + db8Lib.DB_SERVICE + '/find', {
+          query: { from: kind, where: [{ prop: 'absent', op: '=', val: 'x' }] }
+        });
       })
       .then(function (reponse) {
         assert.equal(reponse.returnValue, false, 'requête refusée');
@@ -406,6 +425,143 @@ harness.describe('DB8 : la clé maître est relue, sinon l import échoue tout d
         })[0];
         assert.ok(sonde && sonde.indexe === true, 'le kind de la clé maître est annoncé indexé');
         assert.ok(sonde.champs.indexOf('profileId') !== -1, 'champ indexé annoncé : ' + sonde.champs.join(','));
+      });
+  });
+});
+
+harness.describe('Pont LS2 : la reponse du hub est lue dans `message.payload` (D-41)', function () {
+  /**
+   * Faux `webos-service` : `call(uri, params, callback)` rend un objet **`Message`**, la réponse
+   * étant dans `payload` (`lib/service.js` et `lib/message.js` du module `webos-service`).
+   */
+  function serviceEnveloppe(bus) {
+    var appels = [];
+    return {
+      appels: appels,
+      register: function () {},
+      call: function (uri, params, callback) {
+        appels.push({ uri: uri, params: params });
+        return Promise.resolve(bus.call(uri, params)).then(function (charge) {
+          callback({ payload: charge, isSubscription: false, method: uri, sender: 'faux-service' });
+        });
+      }
+    };
+  }
+
+  harness.it('aller-retour DB8 complet a travers l enveloppe du hub', function () {
+    // Avant correctif : le premier putKind etait tenu pour refuse et l import s arretait avant
+    // toute ecriture (« creation du kind DB8 refusee »).
+    var bus = new db8Lib.FakeDb8Bus();
+    var service = serviceEnveloppe(bus);
+    var db = new db8Lib.Db8Client({ call: mainLib.createLs2Caller(service), appId: db8Lib.APP_ID });
+    return db
+      .put('profiles', [{ id: 'p1', name: 'Maison' }])
+      .then(function () {
+        return db.find('profiles', { id: 'p1' });
+      })
+      .then(function (lignes) {
+        assert.equal(lignes.length, 1, 'ligne relue par son index');
+        assert.equal(lignes[0].name, 'Maison', 'contenu intact');
+        assert.ok(service.appels.length >= 3, 'putKind, put et find sont passes par le pont');
+      });
+  });
+
+  harness.it('un refus du hub remonte avec son code et son texte', function () {
+    var service = {
+      register: function () {},
+      call: function (uri, params, callback) {
+        if (uri.indexOf('/putKind') !== -1) {
+          callback({ payload: { returnValue: true } });
+          return;
+        }
+        callback({ payload: { returnValue: false, errorCode: -3965, errorText: 'db: no index for query' } });
+      }
+    };
+    var db = new db8Lib.Db8Client({ call: mainLib.createLs2Caller(service), appId: db8Lib.APP_ID });
+    return db.find('probes', { cle: 'x' }).then(
+      function () {
+        throw new Error('un refus du hub a ete ignore');
+      },
+      function (erreur) {
+        assert.ok(erreur.message.indexOf('-3965') !== -1, 'code present : ' + erreur.message);
+        assert.ok(erreur.message.indexOf('no index for query') !== -1, 'texte present : ' + erreur.message);
+      }
+    );
+  });
+
+  harness.it('la charge utile a plat reste acceptee (autre famille de hub)', function () {
+    var bus = new db8Lib.FakeDb8Bus();
+    var service = {
+      register: function () {},
+      call: function (uri, params, callback) {
+        return Promise.resolve(bus.call(uri, params)).then(function (charge) {
+          callback(charge);
+        });
+      }
+    };
+    var db = new db8Lib.Db8Client({ call: mainLib.createLs2Caller(service), appId: db8Lib.APP_ID });
+    return db
+      .put('preferences', [{ profileId: 'p1', ordre: 'source' }])
+      .then(function () {
+        return db.find('preferences', { profileId: 'p1' });
+      })
+      .then(function (lignes) {
+        assert.equal(lignes.length, 1, 'ligne relue');
+      });
+  });
+
+  harness.it('putKind refuse parce que le kind existe : la lecture continue', function () {
+    var bus = new db8Lib.FakeDb8Bus();
+    return bus
+      .call('luna://' + db8Lib.DB_SERVICE + '/putKind', {
+        id: db8Lib.kindOf('profiles'),
+        owner: db8Lib.APP_ID,
+        private: true,
+        indexes: [{ name: 'id', props: [{ name: 'id' }] }]
+      })
+      .then(function () {
+        var db = new db8Lib.Db8Client({
+          call: mainLib.createLs2Caller(serviceEnveloppe(bus)),
+          appId: db8Lib.APP_ID
+        });
+        return db.find('profiles', { id: 'p1' }).then(
+          function (lignes) {
+            assert.equal(lignes.length, 0, 'kind existant reutilise, aucune erreur');
+          },
+          function (erreur) {
+            throw new Error('le refus « kind already exists » a interrompu l usage : ' + erreur.message);
+          }
+        );
+      });
+  });
+
+  harness.it('kind existant SANS index : le refus reste, la lecture ne ment pas', function () {
+    // la tolerance « kind existe deja » ne doit pas desserrer le garde d index (regression D-40) :
+    // un kind enregistre sans index fait echouer l ecriture au lieu de rendre une lecture vide
+    var bus = new db8Lib.FakeDb8Bus();
+    return bus
+      .call('luna://' + db8Lib.DB_SERVICE + '/putKind', {
+        id: db8Lib.kindOf('masterKeys'),
+        owner: db8Lib.APP_ID,
+        private: true
+      })
+      .then(function () {
+        var db = new db8Lib.Db8Client({
+          call: mainLib.createLs2Caller(serviceEnveloppe(bus)),
+          appId: db8Lib.APP_ID
+        });
+        var cles = reposLib.createMasterKeyRepository(db);
+        return cles.ensure('p1').then(
+          function () {
+            throw new Error('ecriture acceptee alors que l index est absent');
+          },
+          function (erreur) {
+            assert.ok(
+              erreur.message.indexOf('no index for query') !== -1 || erreur.message.indexOf('illisible') !== -1,
+              'refus explicite : ' + erreur.message
+            );
+          }
+        );
       });
   });
 });

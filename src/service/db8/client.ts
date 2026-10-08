@@ -77,6 +77,25 @@ export function kindOf(name: KindName): string {
   return APP_ID + ':db:' + name + ':' + KIND_VERSIONS[name];
 }
 
+/**
+ * Clause `where` de DB8. La forme documentée est un **tableau** d'objets `{prop, op, val}`
+ * (`MojDbQuery::addClauses` lit `prop`, `op`, `val`) — et non une correspondance `{champ: valeur}`,
+ * qui n'ajoute tout simplement aucune clause.
+ */
+export interface ClauseDb8 {
+  prop: string;
+  op: string;
+  val: unknown;
+}
+
+/** Traduit le `where` des dépôts en clauses DB8 ; nos dépôts n'utilisent que l'égalité. */
+export function clausesDe(where: Record<string, unknown>): ClauseDb8[] {
+  return Object.keys(where).map((prop) => ({ prop: prop, op: '=', val: where[prop] }));
+}
+
+/** Limite haute imposée par le schéma du service (`limit` : 0 à 500). */
+export const LIMITE_MAX_DB8 = 500;
+
 export interface Ls2CallParams {
   [key: string]: unknown;
 }
@@ -89,7 +108,16 @@ export interface Db8ClientOptions {
 }
 
 /** Détail lisible d'une réponse en échec : ` : erreurCode erreurTexte`, jamais de contenu sensible. */
-function detailErreur(reply: Record<string, unknown>): string {
+function detailErreur(reponse: Record<string, unknown>): string {
+  // Tolérance d'enveloppe : si un appelant remet l'objet `Message` de `webos-service` au lieu de sa
+  // charge utile, l'erreur est cherchée dans `payload` — un refus DB8 ne doit jamais être muet.
+  const reply =
+    reponse.errorCode === undefined &&
+    reponse.errorText === undefined &&
+    reponse.payload &&
+    typeof reponse.payload === 'object'
+      ? (reponse.payload as Record<string, unknown>)
+      : reponse;
   const code = reply.errorCode !== undefined ? String(reply.errorCode) : '';
   const texte = reply.errorText !== undefined ? String(reply.errorText) : '';
   const interne = (reply.error || {}) as { errorCode?: unknown; errorText?: unknown };
@@ -100,6 +128,11 @@ function detailErreur(reply: Record<string, unknown>): string {
     [codeInterne, texteInterne].filter((valeur) => valeur !== '').join(' ')
   ].filter((valeur) => valeur !== '');
   return morceaux.length > 0 ? ' : ' + morceaux.join(' / ') : '';
+}
+
+/** Message d'une erreur quelconque, sans jamais supposer qu'elle en est une. */
+function texteDe(erreur: unknown): string {
+  return erreur instanceof Error ? erreur.message : String(erreur);
 }
 
 export interface RapportMigrationDb8 {
@@ -131,13 +164,13 @@ export class Db8Client {
   async put(name: KindName, objects: Array<Record<string, unknown>>): Promise<string[]> {
     if (objects.length === 0) return [];
     await this.ensureKind(name);
+    // Le schéma du service (`put`) n'accepte que `objects` (et `shardId`) : toute autre clé est
+    // refusée (`additionalProperties: false`). `private` appartient à `putKind`, pas à `put`.
     const reply = await this.call('luna://' + DB_SERVICE + '/put', {
-      objects: objects.map((object) => Object.assign({ _kind: kindOf(name) }, object)),
-      // `private: true` est une politique de suppression/désinstallation, pas un chiffrement (§8.1)
-      private: true
+      objects: objects.map((object) => Object.assign({ _kind: kindOf(name) }, object))
     });
-    if (reply.returnValue === false) {
-      throw new AppError('internal/unexpected', 'ecriture DB8 refusee');
+    if (reply.returnValue !== true) {
+      throw new AppError('internal/unexpected', 'ecriture DB8 refusee' + detailErreur(reply));
     }
     const results = reply.results as Array<{ id?: string }> | undefined;
     return (results || []).map((result) => result.id || '');
@@ -158,9 +191,15 @@ export class Db8Client {
       );
     }
     await this.ensureKind(name);
-    const query: Record<string, unknown> = { where: Object.assign({ _kind: kindOf(name) }, where) };
-    if (options.limit !== undefined) query.limit = options.limit;
-    const reply = await this.call('luna://' + DB_SERVICE + '/find', { query, incDel: options.incDel === true });
+    // Requête au format DB8 : `from` est **obligatoire** (`MojDbQuery::fromObject` le lit comme un
+    // champ requis), les clauses forment un tableau, et `incDel`/`limit` vivent **dans** la requête.
+    // Le schéma du service n'accepte rien d'autre au premier niveau (D-41).
+    const query: Record<string, unknown> = { from: kindOf(name) };
+    const clauses = clausesDe(where);
+    if (clauses.length > 0) query.where = clauses;
+    if (options.incDel === true) query.incDel = true;
+    if (options.limit !== undefined) query.limit = Math.max(0, Math.min(LIMITE_MAX_DB8, options.limit));
+    const reply = await this.call('luna://' + DB_SERVICE + '/find', { query: query });
     if (reply.returnValue !== true) {
       // Un échec de base ne doit jamais devenir « aucune ligne » : c'est ainsi qu'un index manquant
       // s'est transformé en « clé maître absente » (D-40).
@@ -176,20 +215,23 @@ export class Db8Client {
       ids: ids,
       purge: true
     });
-    if (reply.returnValue === false) {
-      throw new AppError('internal/unexpected', 'suppression DB8 refusee');
+    if (reply.returnValue !== true) {
+      throw new AppError('internal/unexpected', 'suppression DB8 refusee' + detailErreur(reply));
     }
     return (reply.count as number) || ids.length;
   }
 
   /** Supprime **tous** les enregistrements d'un kind (utilisé par la suppression de profil). */
   async delKind(name: KindName): Promise<number> {
+    await this.ensureKind(name);
+    // `del` accepte `query.ids` ou `query.query` : ici une requête sans clause — c'est le kind
+    // entier qui part (`from` reste obligatoire).
     const reply = await this.call('luna://' + DB_SERVICE + '/del', {
-      query: { where: { _kind: kindOf(name) } },
+      query: { from: kindOf(name) },
       purge: true
     });
-    if (reply.returnValue === false) {
-      throw new AppError('internal/unexpected', 'suppression DB8 refusee');
+    if (reply.returnValue !== true) {
+      throw new AppError('internal/unexpected', 'suppression DB8 refusee' + detailErreur(reply));
     }
     return (reply.count as number) || 0;
   }
@@ -201,8 +243,8 @@ export class Db8Client {
     const reply = await this.call('luna://' + DB_SERVICE + '/merge', {
       objects: objects.map((object) => Object.assign({ _kind: kindOf(name) }, object))
     });
-    if (reply.returnValue === false) {
-      throw new AppError('internal/unexpected', 'fusion DB8 refusee');
+    if (reply.returnValue !== true) {
+      throw new AppError('internal/unexpected', 'fusion DB8 refusee' + detailErreur(reply));
     }
     return (reply.count as number) || objects.length;
   }
@@ -231,12 +273,16 @@ export class Db8Client {
       }
       let lignes: Array<Record<string, unknown>> = [];
       try {
-        const reply = await this.call('luna://' + DB_SERVICE + '/find', { query: { where: { _kind: legacyId } } });
+        // Lecture du kind hérité **sans clause** : `from` suffit, et la requête est servie par
+        // l'index implicite `_id` que DB8 enregistre pour tout kind (`configureIndexes`).
+        const reply = await this.call('luna://' + DB_SERVICE + '/find', { query: { from: legacyId } });
         if (reply.returnValue !== true) {
           rapport.ignores += 1;
           continue;
         }
-        lignes = ((reply.results || []) as Array<Record<string, unknown>>).slice();
+        lignes = ((reply.results || []) as Array<Record<string, unknown>>).filter(
+          (ligne) => String(ligne._kind) === legacyId
+        );
       } catch (_erreur) {
         rapport.ignores += 1;
         continue;
@@ -304,20 +350,33 @@ export class Db8Client {
   private async ensureKind(name: KindName): Promise<void> {
     const kind = kindOf(name);
     if (this.knownKinds[kind]) return;
-    const reply = await this.call('luna://' + DB_SERVICE + '/putKind', {
-      id: kind,
-      owner: APP_ID,
-      private: true,
-      // DB8 : « All queries must be on indexed fields » — sans ces index, aucune requête ne répond.
-      indexes: KIND_INDEXES[name].map((index) => ({
-        name: index.name,
-        props: index.props.map((prop) => ({name: prop}))
-      }))
-    });
+    // Charge utile : le schéma du service (`putKind`) n'accepte que `id`, `owner`, `private`,
+    // `indexes`, `revSets`… et rien d'autre (`additionalProperties: false`).
+    let reply: Record<string, unknown>;
+    try {
+      reply = await this.call('luna://' + DB_SERVICE + '/putKind', {
+        id: kind,
+        owner: APP_ID,
+        private: true,
+        // DB8 : « All queries must be on indexed fields » — sans ces index, aucune requête ne répond.
+        indexes: KIND_INDEXES[name].map((index) => ({
+          name: index.name,
+          props: index.props.map((prop) => ({name: prop}))
+        }))
+      });
+    } catch (erreur) {
+      // Le pont LS2 rejette un appel refusé. Sur un kind **déjà enregistré**, un refus peut ne tenir
+      // qu'à cela (certaines versions de DB8 refusent au lieu de mettre à jour, là où celles d'OSE
+      // font une mise à jour) : le kind étant v2 — donc créé par cette version, avec ses index — on
+      // continue. Toute autre cause remonte telle quelle, permission comprise.
+      if (texteDe(erreur).toLowerCase().indexOf('exist') === -1) throw erreur;
+      this.knownKinds[kind] = true;
+      return;
+    }
     if (reply.returnValue !== true) {
       const detail = detailErreur(reply);
-      // Un `putKind` sur un kind déjà existant n'est pas une erreur : on ne bloque pas l'usage. Le
-      // texte est examiné en plus du code : le code est numérique (« 61115 »), il ne dit rien.
+      // Même tolérance quand le refus arrive en réponse (charge utile validée, `returnValue: false`).
+      // Le texte est examiné en plus du code : le code est numérique (« 61115 »), il ne dit rien.
       if (detail.toLowerCase().indexOf('exist') === -1) {
         throw new AppError('internal/unexpected', 'creation du kind DB8 refusee' + detail);
       }
@@ -327,9 +386,15 @@ export class Db8Client {
 }
 
 /**
- * Faux bus en mémoire reproduisant la sémantique DB8 utilisée ici : `putKind`, `put`, `find`
- * (correspondance exacte, `_id` inclus), `del`, `merge`. Il sert aux tests et au simulateur : le
- * service ne doit pas dépendre d'un appareil pour être vérifiable.
+ * Faux bus en mémoire reproduisant la sémantique DB8 **telle que le service l'expose** : schémas
+ * stricts de chaque méthode (`additionalProperties: false`), `putKind` refusé sur un kind existant,
+ * requête indexée obligatoire (`-3965`), kind non enregistré refusé à l'écriture (`-3970`). Il sert
+ * aux tests et au simulateur : un client qui parle un dialecte à lui doit échouer **ici**, pas sur
+ * la TV.
+ *
+ * Références des schémas : `src/db/MojDbServiceSchemas.cpp` du dépôt `webosose/db8` (putKind, put,
+ * find, del, merge). Codes : `-3965` no index for query, `-3970` kind not registered, `-4029`
+ * schema validation.
  */
 export class FakeDb8Bus {
   private readonly stores: Record<string, Array<Record<string, unknown>>> = {};
@@ -342,13 +407,39 @@ export class FakeDb8Bus {
     return ['_id', '_kind'].concat(this.kinds[kind] || []);
   }
 
+  private inconnues(params: Record<string, unknown>, autorisees: string[]): string | null {
+    const cles = Object.keys(params || {});
+    for (let i = 0; i < cles.length; i += 1) {
+      if (autorisees.indexOf(cles[i]) === -1) return cles[i];
+    }
+    return null;
+  }
+
+  private schema(reason: string): Record<string, unknown> {
+    return { returnValue: false, errorCode: -4029, errorText: 'schema validation failed: ' + reason };
+  }
+
   readonly call: Ls2Caller = async (uri: string, params: Ls2CallParams) => {
     const action = uri.replace('luna://' + DB_SERVICE + '/', '');
     switch (action) {
       case 'putKind': {
         // DB8 refuse un `putKind` sur un kind existant : on reproduit le refus, sinon un kind
         // enregistre sans index (schema v1) passerait pour un kind conforme (D-40).
+        const inconnu = this.inconnues(params, [
+          'id',
+          'owner',
+          'private',
+          'assignId',
+          'sync',
+          'extends',
+          'schema',
+          'indexes',
+          'revSets'
+        ]);
+        if (inconnu) return this.schema('putKind: cle inattendue ' + inconnu);
         const id = String(params.id || '');
+        const owner = String(params.owner || '');
+        if (id.length < 3 || owner.length < 1) return this.schema('putKind: id/owner requis');
         if (this.kinds[id]) {
           return { returnValue: false, errorCode: 61115, errorText: "db: kind already exists: '" + id + "'" };
         }
@@ -362,7 +453,11 @@ export class FakeDb8Bus {
         return { returnValue: true, kind: id, indexes: indexes.length };
       }
       case 'put': {
+        // `putKind` accepte `private` ; `put` non (schema : `objects` et `shardId` seulement).
+        const inconnu = this.inconnues(params, ['objects', 'shardId']);
+        if (inconnu) return this.schema('put: cle inattendue ' + inconnu);
         const objects = (params.objects || []) as Array<Record<string, unknown>>;
+        if (!Array.isArray(params.objects)) return this.schema('put: objects requis');
         const kindInconnu = objects.map((o) => String(o._kind)).find((kind) => !this.kinds[kind]);
         if (kindInconnu) {
           return { returnValue: false, errorCode: -3970, errorText: 'db: kind not registered' };
@@ -381,6 +476,8 @@ export class FakeDb8Bus {
         return { returnValue: true, results };
       }
       case 'merge': {
+        const inconnu = this.inconnues(params, ['query', 'objects', 'ignoreMissing', 'props']);
+        if (inconnu) return this.schema('merge: cle inattendue ' + inconnu);
         const objects = (params.objects || []) as Array<Record<string, unknown>>;
         objects.forEach((object) => {
           const kind = String(object._kind);
@@ -393,14 +490,17 @@ export class FakeDb8Bus {
         return { returnValue: true, count: objects.length };
       }
       case 'find': {
-        const query = (params.query || {}) as { where?: Record<string, unknown>; limit?: number };
-        const where = query.where || {};
-        const kind = String(where._kind);
-        if (!this.kinds[kind]) {
+        const inconnu = this.inconnues(params, ['query', 'count', 'watch', 'subscribe']);
+        if (inconnu) return this.schema('find: cle inattendue ' + inconnu);
+        const requete = this.requete(params.query);
+        if (typeof requete === 'string') return this.schema(requete);
+        const query = requete as { from: string; where?: Array<{ prop: string; op: string; val: unknown }>; limit?: number };
+        if (!this.kinds[query.from]) {
           return { returnValue: false, errorCode: -3970, errorText: 'db: kind not registered' };
         }
-        const permis = this.champs(kind);
-        const interdits = Object.keys(where).filter((champ) => permis.indexOf(champ) === -1);
+        const clauses = query.where || [];
+        const permis = this.champs(query.from);
+        const interdits = clauses.map((clause) => clause.prop).filter((champ) => permis.indexOf(champ) === -1);
         if (interdits.length > 0) {
           return {
             returnValue: false,
@@ -408,13 +508,15 @@ export class FakeDb8Bus {
             errorText: 'db: no index for query (' + interdits.join(', ') + ')'
           };
         }
-        const list = (this.stores[kind] || []).filter((record) => matches(record, where));
+        const list = (this.stores[query.from] || []).filter((record) => matches(record, clauses));
         const limited = query.limit === undefined ? list : list.slice(0, query.limit);
         return { returnValue: true, results: limited.map((record) => Object.assign({}, record)) };
       }
       case 'del': {
-        const ids = (params.ids || []) as string[];
-        if (ids.length > 0) {
+        const inconnu = this.inconnues(params, ['query', 'ids', 'purge']);
+        if (inconnu) return this.schema('del: cle inattendue ' + inconnu);
+        const ids = params.ids as string[] | undefined;
+        if (Array.isArray(ids) && ids.length > 0) {
           let removed = 0;
           Object.keys(this.stores).forEach((kind) => {
             const list = this.stores[kind];
@@ -424,12 +526,12 @@ export class FakeDb8Bus {
           });
           return { returnValue: true, count: removed };
         }
-        const query = (params.query || {}) as { where?: Record<string, unknown> };
-        const where = query.where || {};
-        const kind = String(where._kind);
-        const list = this.stores[kind] || [];
-        const kept = list.filter((record) => !matches(record, where));
-        this.stores[kind] = kept;
+        const requete = this.requete(params.query);
+        if (typeof requete === 'string') return this.schema(requete);
+        const query = requete as { from: string; where?: Array<{ prop: string; op: string; val: unknown }> };
+        const list = this.stores[query.from] || [];
+        const kept = list.filter((record) => !matches(record, query.where || []));
+        this.stores[query.from] = kept;
         return { returnValue: true, count: list.length - kept.length };
       }
       default:
@@ -437,16 +539,58 @@ export class FakeDb8Bus {
     }
   };
 
+  /**
+   * Valide une `query` selon le schéma du service (`from` obligatoire, `where` en **tableau** de
+   * `{prop, op, val}`). Rend la requête, ou le motif d'échec.
+   */
+  private requete(brute: unknown): { from: string; where?: Array<{ prop: string; op: string; val: unknown }>; limit?: number } | string {
+    if (!brute || typeof brute !== 'object') return 'query requise';
+    const query = brute as Record<string, unknown>;
+    const inconnu = this.inconnues(query, [
+      'select',
+      'from',
+      'where',
+      'filter',
+      'aggregate',
+      'orderBy',
+      'distinct',
+      'desc',
+      'incDel',
+      'limit',
+      'immediateReturn',
+      'page'
+    ]);
+    if (inconnu) return 'query: cle inattendue ' + inconnu;
+    if (typeof query.from !== 'string' || query.from.length === 0) return 'query.from requis';
+    let clauses: Array<{ prop: string; op: string; val: unknown }> = [];
+    if (query.where !== undefined) {
+      if (!Array.isArray(query.where)) return 'query.where doit etre un tableau';
+      const invalide = query.where.find(
+        (clause) =>
+          !clause ||
+          typeof clause !== 'object' ||
+          typeof (clause as { prop?: unknown }).prop !== 'string' ||
+          typeof (clause as { op?: unknown }).op !== 'string'
+      );
+      if (invalide) return 'clause where invalide (prop/op/val)';
+      clauses = query.where as Array<{ prop: string; op: string; val: unknown }>;
+      const operateur = clauses.find((clause) => clause.op !== '=');
+      if (operateur) return 'operateur non gere par le faux bus : ' + operateur.op;
+    }
+    return { from: query.from, where: clauses, limit: query.limit as number | undefined };
+  }
+
   /** Contenu brut, pour les assertions de test (jamais exposé par le service). */
   dump(): Record<string, Array<Record<string, unknown>>> {
     return this.stores;
   }
 }
 
-function matches(record: Record<string, unknown>, where: Record<string, unknown>): boolean {
-  return Object.keys(where).every((key) => {
-    const expected = where[key];
-    const actual = record[key];
+/** Correspondance d'un enregistrement avec les clauses `{prop, op: '=', val}` d'une requête DB8. */
+function matches(record: Record<string, unknown>, clauses: Array<{ prop: string; op: string; val: unknown }>): boolean {
+  return clauses.every((clause) => {
+    const expected = clause.val;
+    const actual = record[clause.prop];
     if (Array.isArray(expected)) {
       return Array.isArray(actual) ? expected.every((value) => actual.indexOf(value) !== -1) : false;
     }

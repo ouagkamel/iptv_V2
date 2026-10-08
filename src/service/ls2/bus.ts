@@ -41,13 +41,17 @@ export interface WebosMessageLike {
   respond: (reply: unknown) => void;
 }
 
+/**
+ * Réponse d'un `service.call` : `webos-service` remet un **objet `Message`**, dont la charge utile
+ * est dans `payload` (référence LG : `message.respond(payload)` pour le service appelé, exemple
+ * `message.payload.name` pour l'appelant). Les champs de la réponse (`returnValue`, `errorCode`,
+ * `errorText`, `results`…) ne sont **pas** au premier niveau.
+ */
+export type WebosCallReponse = { payload?: Record<string, unknown> } & Record<string, unknown>;
+
 export interface WebosServiceLike {
   register(command: string, handler: (message: WebosMessageLike) => void): void;
-  call(
-    uri: string,
-    params: Record<string, unknown>,
-    callback: (message: { returnValue?: boolean; errorCode?: number; errorText?: string } & Record<string, unknown>) => void
-  ): unknown;
+  call(uri: string, params: Record<string, unknown>, callback: (message: WebosCallReponse) => void): unknown;
 }
 
 /** Adapte une instance `webos-service` existante (le service n'en crée qu'une). */

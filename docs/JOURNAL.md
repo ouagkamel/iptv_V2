@@ -1,5 +1,55 @@
 # Journal d'exécution
 
+## 2026-10-08 — « création du kind DB8 refusée » : la réponse du hub était lue au mauvais niveau (0.1.12)
+
+**Ce qui a été observé** (simulateur, paquet 0.1.11, page de diagnostic) : `db.ok: false`,
+`erreur : « Creation du kind DB8 refusee »`, `sonde : « echec (putKind profiles) : creation du kind
+DB8 refusee »` — **sans le moindre code ni texte de la plateforme**. C'est ce détail qui a tranché :
+un refus réel de DB8 arrive toujours avec un code et un texte (schéma, permission, index) ; un refus
+muet ne peut venir que d'une réponse mal lue.
+
+**La cause.** Le module `webos-service` livre la réponse d'un appel dans un objet **`Message`**, dont
+la charge utile est `payload` :
+
+```js
+// lib/service.js — Service.prototype.call
+request.addListener("response", function (msg) { callback(new Message(msg, handle)); });
+// lib/message.js — Message
+this.payload = JSON.parse(message.payload());
+```
+
+Notre pont (`createLs2Caller`) lisait `message.returnValue`, `message.errorCode`, `message.results`
+au **premier niveau** : ces champs n'y sont pas. Un `putKind` **réussi** arrivait donc avec
+`returnValue: undefined`, c'est-à-dire `!== true` : l'import s'arrêtait avant la première écriture.
+Le même défaut expliquait rétroactivement le « clé maître absente » de D-40 : une lecture servie
+revenait sans `results`, donc vide. L'asymétrie qui l'a masqué : côté application,
+`webOS.service.request` remet la charge utile **directement** — l'aller app→service fonctionnait,
+le retour service→DB8 non.
+
+| Réf. | Constat | Correctif |
+|---|---|---|
+| **D-41a** | Réponse lue au premier niveau : un appel réussi passait pour refusé (« creation du kind DB8 refusee », sans code ni texte) | `createLs2Caller` déplie `message.payload` ; la forme « à plat » reste acceptée (deux familles de hub) |
+| **D-41b** | Corollaire : une lecture servie passait pour vide — cause réelle du bandeau D-40 | `find`/`put`/`del`/`merge` lisent la charge utile réelle ; un refus remonte toujours avec code **et** texte |
+| **D-41c** | La tolérance « le kind existe déjà » vivait sur le chemin « réponse », jamais sur le chemin « rejet » du pont : inopérante sur l'appareil | Tolérance sur les **deux** chemins, **sans desserrer le garde d'index** (kind sans index ⇒ échec d'écriture, jamais lecture vide) |
+| **D-41d** | Le faux bus parlait un dialecte plus permissif que le service : `where` en objet, `incDel` hors requête, `private` envoyé à `put` | Le faux bus applique les schémas réels de `MojDbServiceSchemas.cpp` : `from` obligatoire, `where` = tableau de `{prop, op, val}`, `limit` (0-500) **dans** la requête, `put` limité à `objects`/`shardId`, clé inattendue refusée (`-4029`) |
+
+**Ce qui a été vérifié dans les sources** (aucune supposition) : `lib/service.js` et `lib/message.js` de
+`webosose/nodejs-module-webos-service` (enveloppe `Message`) ; `src/db/MojDbServiceSchemas.cpp` de
+`webosose/db8` (`MOJ_FIND_SCHEMA`, `MOJ_DEL_SCHEMA`, `MOJ_PUT_SCHEMA`, `PutKindSchema` — `private`
+appartient à `putKind`, pas à `put`) ; `MojDbQuery.cpp` (`where` en tableau) ; `MojDbKind.cpp`
+(index `_id` implicite de tout kind, `indexForQuery` → `-3965`) ; `MojErr.h` (codes : `-3970`, `-3965`,
+`-4029`).
+
+**Pourquoi les tests ne l'avaient pas vu** : le banc branchait `Db8Client` directement sur le faux bus,
+donc le pont n'était jamais traversé. Le banc passe désormais aussi par un faux `webos-service` qui
+livre ses réponses dans `payload` (5 cas dans `tests/db8.test.js`) : aller-retour complet, refus avec
+code et texte, forme à plat, tolérance « kind déjà là », garde d'index maintenu.
+
+**Contrôles** : `npm test` → **220 tests, 0 échec** (Node 20 **et** Node 8.12) ; `lint:node812`,
+`check:deps`, `typecheck` OK ; banc headless sur le paquet public (`dist/0.1.12/app`) → `verdict OK`,
+`theme: true`, `requetes: []`, `ressourcesManquantes: []` ; ipk public « publiable » (garde) et
+**0 identifiant** dans l'ipk et les deux archives re-téléchargées.
+
 ## 2026-10-08 — « clé maître absente » : DB8 n'accepte que les requêtes indexées (0.1.11)
 
 **Ce qui a été observé** (simulateur, paquet 0.1.10) : l'accueil s'affiche, l'import se déroule

@@ -48,16 +48,28 @@ export function sanitize(line: string): string {
 /**
  * Pont LS2 : `webos-service` utilise des callbacks. Une seule promesse par appel, rejetée si la
  * plateforme répond `returnValue: false` — la couche DB8 reçoit alors une erreur typée.
+ *
+ * **Enveloppe** : le callback reçoit un objet `Message`, dont la réponse est dans `payload`
+ * (`webos-service` : `Message.prototype.payload = JSON.parse(message.payload())`, et le service
+ * appelé répond par `message.respond(payload)`). Lire `message.returnValue` — la forme « plate » —
+ * rendait la réponse **vide** : les identifiants d'écriture disparaissaient, les lectures passaient
+ * pour vides (« clé maître absente », D-40) et un `putKind` réussi passait pour refusé (D-41).
+ * Les deux formes sont acceptées : l'une comme l'autre est vérifiée par les tests.
  */
 export function createLs2Caller(service: WebosServiceLike): Ls2Caller {
   return (uri: string, params: Record<string, unknown>) =>
     new Promise<{ returnValue?: boolean } & Record<string, unknown>>((resolve, reject) => {
       service.call(uri, params, (message) => {
-        if (!message || message.returnValue === false) {
-          const code = message && message.errorCode !== undefined ? String(message.errorCode) : 'inconnu';
+        const enveloppe = (message || {}) as Record<string, unknown>;
+        const charge =
+          enveloppe.payload && typeof enveloppe.payload === 'object'
+            ? (enveloppe.payload as Record<string, unknown>)
+            : enveloppe;
+        if (!message || charge.returnValue === false) {
+          const code = charge.errorCode !== undefined ? String(charge.errorCode) : 'inconnu';
           // Le message brut du bus est conservé : sans lui, un échec de base (DB8 absent, ACG
           // refusée) se traduisait par un simple « appel LS2 refuse (-1) », inexploitable à distance.
-          const brut = message && message.errorText ? sanitize(String(message.errorText)) : '';
+          const brut = charge.errorText ? sanitize(String(charge.errorText)) : '';
           reject(
             new AppError(
               'internal/unexpected',
@@ -67,7 +79,7 @@ export function createLs2Caller(service: WebosServiceLike): Ls2Caller {
           );
           return;
         }
-        resolve(message);
+        resolve(charge);
       });
     });
 }
