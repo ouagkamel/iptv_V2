@@ -461,7 +461,16 @@ export class XtreamProvider {
     const pass = encodeURIComponent(credentials.password);
     const base = this.baseUrl();
     if (input.contentType === 'live') {
-      const format = requestedFormat === 'auto' ? (this.profile.preferredLiveFormat && this.profile.preferredLiveFormat !== 'auto' ? this.profile.preferredLiveFormat : 'ts') : requestedFormat;
+      // `auto` : la preference du profil d'abord ; sans elle, **HLS** et non MPEG-TS. Le direct en
+      // MPEG-TS progressif est refusé par le pipeline média de certains appareils (`MediaError 4`,
+      // D-44) alors que HLS y est pris en charge nativement ; le `.ts` reste demandable
+      // explicitement (`requestedFormat: 'ts'`) et sert de repli au lecteur (§0B : qualifier les deux).
+      const format =
+        requestedFormat === 'auto'
+          ? this.profile.preferredLiveFormat && this.profile.preferredLiveFormat !== 'auto'
+            ? this.profile.preferredLiveFormat
+            : 'hls'
+          : requestedFormat;
       const extension = format === 'hls' ? 'm3u8' : 'ts';
       const url = base + '/live/' + user + '/' + pass + '/' + input.providerId + '.' + extension;
       return {

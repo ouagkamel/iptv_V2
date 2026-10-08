@@ -231,11 +231,17 @@ harness.describe('Adaptateur Xtream : URL de lecture et series (§6.1)', functio
     var portal = portalLib.createPortal({ counts: { live: 2 } });
     var provider = makeProvider(portal);
     var live = provider.buildStreamUrl({ providerId: '1000', contentType: 'live' }, 'auto');
-    assert.equal(live.url, PORTAL_URL + '/live/testeur/secret/1000.ts', 'URL live MPEG-TS par defaut');
+    // `auto` : HLS par defaut (direct adaptatif, pris en charge nativement) -- le MPEG-TS progressif
+    // se demande explicitement ; il reste essaye par le lecteur en repli (D-44, §0B).
+    assert.equal(live.url, PORTAL_URL + '/live/testeur/secret/1000.m3u8', 'URL live HLS par defaut');
+    assert.equal(live.preferredMime, 'application/vnd.apple.mpegurl', 'MIME HLS annonce');
     assert.equal(live.kind, 'derived', 'URL reconstruite');
-    assert.equal(live.preferredMime, 'video/mp2t', 'type MIME annonce');
     var hls = provider.buildStreamUrl({ providerId: '1000', contentType: 'live' }, 'hls');
     assert.ok(hls.url.indexOf('.m3u8') !== -1, 'variante HLS');
+
+    var ts = provider.buildStreamUrl({ providerId: '1000', contentType: 'live' }, 'ts');
+    assert.equal(ts.url, PORTAL_URL + '/live/testeur/secret/1000.ts', 'MPEG-TS sur demande explicite');
+    assert.equal(ts.preferredMime, 'video/mp2t', 'MIME MPEG-TS annonce');
     assert.equal(hls.preferredMime, 'application/vnd.apple.mpegurl', 'type MIME HLS');
     var vod = provider.buildStreamUrl({ providerId: '5000', contentType: 'vod', containerExtension: 'mp4' });
     assert.equal(vod.url, PORTAL_URL + '/movie/testeur/secret/5000.mp4', 'URL VOD');

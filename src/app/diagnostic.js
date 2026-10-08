@@ -47,6 +47,28 @@ function format() {
   return window.iptvFormat || { texteErreur: String, texteReponse: function (v) { return String(v); } };
 }
 
+/** Module des formats de flux (`src/app/mediaformats.js`), avec un repli neutre s'il manque. */
+function mediaformats() {
+  return window.iptvMedia || {
+    resume: function () { return 'module absent du paquet'; },
+    candidats: function () { return ['hls', 'ts']; }
+  };
+}
+
+/**
+ * Ce que **le lecteur média de cet appareil** déclare savoir lire (§0B). C'est la seule source
+ * d'autorité pour choisir entre HLS et MPEG-TS : la demander ici évite de conclure au hasard, et la
+ * consigner dans `docs/PHASE-0.md` §0B constitue la preuve attendue.
+ */
+function formatsDeclares() {
+  var video = document.createElement('video');
+  var jouer = typeof video.canPlayType === 'function' ? video.canPlayType.bind(video) : null;
+  return {
+    resume: mediaformats().resume(jouer),
+    ordre: mediaformats().candidats(jouer).join(' puis ')
+  };
+}
+
 /**
  * Affichage d'une réponse. Le verdict est lu **aussi** dans `data.ok` : `testProfile` répond
  * `returnValue: true` avec un verdict métier dans `data` (compte expiré, identifiants refusés…).
@@ -145,7 +167,7 @@ function environnement() {
     // le simulateur webOS n'enregistre pas les services déclarés par un .ipk : il faut les ajouter
     // à la main (File > Add Service). Le reconnaître évite de chercher un défaut côté paquet.
     simulateur: /simulator|emulator/i.test(navigator.userAgent),
-    versionPage: '0.1.14'
+    versionPage: '0.1.15'
   };
 }
 
@@ -158,7 +180,10 @@ function afficherEnvironnement(details) {
     '<b>service appelé</b> : ' + env.service,
     '<b>page</b> : ' + env.adresse,
     '<b>agent</b> : ' + env.agent +
-      (env.simulateur ? ' <b>(simulateur)</b> — le service doit y être ajouté à la main (File &gt; Add Service)' : '')
+      (env.simulateur ? ' <b>(simulateur)</b> — le service doit y être ajouté à la main (File &gt; Add Service)' : ''),
+    // preuve 0B : ce que le pipeline média déclare lire, et l'ordre d'essai qui en découle
+    '<b>formats de flux déclarés</b> : ' + formatsDeclares().resume +
+      ' — ordre d’essai : <b>' + formatsDeclares().ordre + '</b>'
   ];
   if (details) lignes.push('<b>appareil</b> : ' + details);
   zone.innerHTML = lignes.join('<br>');

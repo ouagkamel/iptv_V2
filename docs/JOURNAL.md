@@ -1,5 +1,37 @@
 # Journal d'exécution
 
+## 2026-10-08 — `MediaError 4` à la lecture : le conteneur servi ne suivait pas le lecteur (0.1.15)
+
+**Ce qui a été observé** (clic sur une chaîne) : « lecture impossible (MediaError 4) — flux expiré ou
+format non pris en charge ». Le journal réseau livré avec la capture tranche : `…/229564.ts` → **302**
+puis **200** `media`, 1,1 Mo — **deux fois** (c'est la re-résolution unique du lecteur), donc le flux
+était bien servi. Le refus venait du **pipeline média**, sur le conteneur : `MEDIA_ERR_SRC_NOT_SUPPORTED`.
+
+**La cause** : le lecteur demandait toujours `requestedFormat: 'auto'` et le service répondait, par
+défaut, une URL **MPEG-TS progressive** (`.ts`). Or la plateforme déclare elle-même ce qu'elle sait
+lire (`HTMLMediaElement.canPlayType`), et `StreamResolution.preferredMime` n'était jamais utilisé côté
+interface. Le format était choisi sans consulter celui qui décode — et la 0B, qui doit qualifier HLS
+puis MPEG-TS, n'avait pas commencé.
+
+| Réf. | Constat | Correctif |
+|---|---|---|
+| **D-44a** | Direct figé en MPEG-TS quel que soit l'appareil | `src/app/mediaformats.js` (module ES5 partagé page/interface/tests) : ordre d'essai d'après `canPlayType` — HLS d'abord, MPEG-TS si seul déclaré, l'autre format toujours en repli |
+| **D-44b** | « flux expiré ou format non pris en charge » pour toute `MediaError` | Message par nature (4 format, 3 décodage, 2 réseau/expiration) **+ formats réellement essayés** |
+| **D-44c** | Aucun repli de conteneur | Séquence bornée : même format re-résolu une fois, puis l'autre conteneur une fois, puis message — jamais de boucle |
+| **D-44d** | `preferredMime` ignoré | Le lecteur en déduit le conteneur **effectivement servi** : une URL mémorisée n'est pas rechargée deux fois sous deux étiquettes |
+| **D-44e** | `auto` ⇒ `.ts` côté service | `auto` ⇒ **HLS** (préférence de profil prioritaire ; `'ts'` demandable) ; la forme `derived` mémorisée suit la même règle |
+| **D-44f** | Un index déjà importé mémorise des URL `.ts` | `resolveStream` sert une URL mémorisée **directe** (sans paramètres) dans le conteneur demandé ; une URL signée reste intacte ⇒ **aucun réimport** |
+| **D-44g** | Rien ne prouvait ce que la plateforme lit | Diagnostic : ligne « formats de flux déclarés » (`canPlayType` + ordre d'essai) — preuve §0B |
+
+**Tests ajoutés** : `tests/mediaformats.test.js` (10 cas : ordre HLS/TS, seul TS déclaré, avis absent
+ou en exception, variante `application/x-mpegURL`, `autre()`, messages, résumé) ; `tests/service.test.js`
+(URL mémorisée servie en HLS puis en TS sur demande) ; `tests/providers.test.js` et `tests/import.test.js`
+mis à jour (`auto` ⇒ `.m3u8`).
+
+**Contrôles** : `npm test` → **243 tests, 0 échec** (Node 20 **et** Node 8.12) ; `lint:node812`,
+`check:deps`, `typecheck` OK ; banc headless `verdict OK` ; ipk « publiable » ; 0 identifiant dans
+l'ipk et les deux archives ; paquet inspecté (module embarqué, page qui le charge, bundle HLS/TS).
+
 ## 2026-10-08 — `-3963 db: permission denied` sur `putKind` : le propriétaire du kind (0.1.14)
 
 **Ce qui a été observé** (simulateur, paquet 0.1.13) : le nom de service était le bon (plus de

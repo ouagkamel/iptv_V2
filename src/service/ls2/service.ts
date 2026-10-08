@@ -62,6 +62,13 @@ import {
 import type { BusRespond, BusHandler, ServiceBus } from './bus';
 
 export const SERVICE_NAME = 'com.ouagkamel.app.iptvplayer.service';
+
+/** Extension d'une URL de flux (`'ts'`, `'m3u8'`…), paramètres de requête exclus, en minuscules. */
+function extensionDeFlux(url: string): string {
+  const sansParametres = url.split('?')[0].split('#')[0];
+  const morceaux = sansParametres.split('.');
+  return morceaux.length > 1 ? morceaux[morceaux.length - 1].toLowerCase() : '';
+}
 export const DEFAULT_STORAGE_ROOT = '/media/internal/com.ouagkamel.app.iptvplayer';
 
 const CONTENT_TYPES: ContentType[] = ['live', 'vod', 'series', 'episode'];
@@ -684,13 +691,26 @@ export class IptvService {
     const streamMode = reader.streamMode(ordinal);
     let resolution: StreamResolution;
     if ((streamMode === 'storedSecret' || streamMode === 'urlNoSecret') && details.heavy.u) {
-      // mode `storedSecret` : URL conservée dans l'index chiffré au repos
+      // mode `storedSecret` : URL conservée dans l'index chiffré au repos. Elle a été écrite **au
+      // moment de l'import** : si le lecteur demande explicitement un autre conteneur (D-44 : HLS
+      // d'abord), une URL directe **sans paramètres** peut être servie dans ce format — c'est
+      // exactement ce que `buildStreamUrl` produirait. Avec une requête (jeton signé), l'URL est
+      // laissée telle quelle : rien n'autorise à deviner qu'un autre chemin reste valable.
+      const stockee = details.heavy.u;
+      let servie = stockee;
+      if (contentType === 'live' && requestedFormat !== 'auto' && stockee.indexOf('?') === -1) {
+        const extension = extensionDeFlux(stockee);
+        const voulue = requestedFormat === 'hls' ? 'm3u8' : 'ts';
+        if ((extension === 'ts' || extension === 'm3u8') && extension !== voulue) {
+          servie = stockee.slice(0, stockee.length - extension.length) + voulue;
+        }
+      }
       resolution = {
-        url: details.heavy.u,
+        url: servie,
         kind: streamMode,
         resolvedAt: this.now()
       };
-      const extension = details.heavy.u.split('?')[0].split('.').pop();
+      const extension = extensionDeFlux(servie);
       if (extension === 'm3u8') resolution.preferredMime = 'application/vnd.apple.mpegurl';
       else if (extension === 'ts') resolution.preferredMime = 'video/mp2t';
     } else {

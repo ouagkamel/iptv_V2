@@ -353,17 +353,33 @@ export function toIndexEntry(
     } catch (_error) {
       // sans identifiants persistés, la relecture reconstruira l'URL : mode `derived`
       entry.streamMode = 'derived';
-      entry.streamForm = formOf(record, plan.contentType);
+      entry.streamForm = formOf(record, plan.contentType, plan.preferredLiveFormat);
     }
   } else {
-    entry.streamForm = formOf(record, plan.contentType);
+    entry.streamForm = formOf(record, plan.contentType, plan.preferredLiveFormat);
   }
   return entry;
 }
 
-/** Partie non secrète de l'URL, conservée en mode `derived` (identifiant de flux + extension). */
-export function formOf(record: XtreamStreamRecord, contentType: XtreamContentType): string {
-  const extension = record.containerExtension || (contentType === 'live' ? 'ts' : 'mp4');
+/**
+ * Partie non secrète de l'URL, conservée en mode `derived` (identifiant de flux + extension).
+ *
+ * **Direct** : l'extension suit la préférence du profil, exactement comme `buildStreamUrl` — sinon
+ * la forme conservée ne décrirait pas l'URL reconstruite. `auto` vaut **HLS** depuis D-44 (le
+ * MPEG-TS progressif est refusé par le pipeline média de certains appareils ; il reste demandable
+ * explicitement, et le lecteur l'essaie en repli).
+ */
+export function formOf(
+  record: XtreamStreamRecord,
+  contentType: XtreamContentType,
+  preferredLiveFormat?: 'auto' | 'hls' | 'ts'
+): string {
+  const extension =
+    contentType === 'live'
+      ? preferredLiveFormat === 'ts'
+        ? 'ts'
+        : 'm3u8'
+      : record.containerExtension || 'mp4';
   const segment = contentType === 'live' ? 'live' : contentType === 'vod' ? 'movie' : 'series';
   return '/' + segment + '/{credentials}/' + record.providerId + '.' + extension;
 }

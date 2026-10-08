@@ -446,6 +446,31 @@ harness.describe('Service LS2 : aucune URL de flux hors resolveStream', function
     });
   });
 
+  harness.it('une URL directe memorisee suit le format demande, sans reimport (D-44)', function () {
+    // L'index a ete ecrit quand le direct partait en MPEG-TS : le lecteur, qui sait ce que la
+    // plateforme lit, demande HLS. Une URL directe sans parametre peut etre servie dans l'autre
+    // conteneur ; une URL signee, non (le jeton vaut pour un chemin precis).
+    return withIndex({ persistSecrets: true }).then(function (stack) {
+      return stack.bus
+        .invoke('resolveStream', { profileId: 'p1', ref: { contentType: 'live', providerId: '1000' }, requestedFormat: 'hls' })
+        .then(function (replies) {
+          var resolution = replies[0].data;
+          assert.equal(replies[0].returnValue, true, 'resolution servie');
+          assert.equal(/\.m3u8$/.test(resolution.url), true, 'conteneur HLS servi : ' + resolution.url);
+          assert.equal(resolution.preferredMime, 'application/vnd.apple.mpegurl', 'MIME HLS annonce');
+          return stack.bus.invoke('resolveStream', {
+            profileId: 'p1',
+            ref: { contentType: 'live', providerId: '1000' },
+            requestedFormat: 'ts'
+          });
+        })
+        .then(function (replies) {
+          assert.equal(/\.ts$/.test(replies[0].data.url), true, 'MPEG-TS sur demande explicite');
+          assert.equal(replies[0].data.preferredMime, 'video/mp2t', 'MIME MPEG-TS annonce');
+        });
+    });
+  });
+
   harness.it('sans identifiants memorises, resolveStream demande de ressaisir le profil', function () {
     var stack = makeStack();
     return addProfile(stack)

@@ -11,7 +11,10 @@
  *    et ne cherchent jamais dans un direct sans `seekable` (§4.6) ;
  *  - Retour quitte le lecteur ; la file et la sélection restent à l'écran d'origine (§4.6) ;
  *  - un échec de `resolveStream` ou une `MediaError` donne un message normalisé, jamais un écran noir
- *    muet ; une URL expirée est re-résolue **une** fois.
+ *    muet ; une URL expirée est re-résolue **une** fois ;
+ *  - **formats (0B)** : l'ordre d'essai est celui que la plateforme déclare (`canPlayType`) — HLS
+ *    d'abord, MPEG-TS ensuite — et l'autre conteneur est essayé **une** fois avant d'abandonner
+ *    (D-44). Le message final nomme les formats réellement essayés.
  */
 
 import React from 'react';
@@ -21,6 +24,7 @@ import Spinner from '@enact/sandstone/Spinner';
 import Spotlight from '@enact/spotlight';
 
 import service from '../services/service';
+import mediaformats from '../../../src/app/mediaformats.js';
 import css from './Lecteur.module.less';
 
 const TOUCHES = {GAUCHE: 37, DROITE: 39, HAUT: 38, BAS: 40, OK: 13, RETOUR: 461, ECHAP: 27};
@@ -36,8 +40,14 @@ class Lecteur extends React.Component {
 			url: '',
 			overlay: false,
 			erreur: '',
-			reessaye: false
+			reessaye: false,
+			format: 'hls',
+			formatEffectif: '',
+			formatsEssayes: []
 		};
+		// Ordre d'essai des conteneurs : fixé après le premier rendu (le `<video>` doit exister)
+		this.candidats = ['hls', 'ts'];
+		this.rangFormat = 0;
 		this.video = React.createRef();
 		this.surTouche = this.surTouche.bind(this);
 		this.surErreurMedia = this.surErreurMedia.bind(this);
@@ -50,6 +60,9 @@ class Lecteur extends React.Component {
 		// Le lecteur prend la main sur les touches : Spotlight est remis en route en sortant seulement.
 		Spotlight.pause();
 		document.addEventListener('keydown', this.surTouche, true);
+		// Ce que la plateforme **déclare** savoir lire décide du premier format demandé (D-44).
+		const video = this.video.current;
+		this.candidats = mediaformats.candidats(video && typeof video.canPlayType === 'function' ? video.canPlayType.bind(video) : null);
 		if (this.props.lecture) this.preparer(this.props.lecture.index);
 	}
 
@@ -73,20 +86,39 @@ class Lecteur extends React.Component {
 	}
 
 	/** Résolution puis lecture : `resolveStream` est appelée **juste avant** de lire (§15.4). */
-	preparer(index) {
+	preparer(index, format, reessaye) {
 		const {lecture} = this.props;
 		if (!lecture || !lecture.file[index]) return;
 		const entree = lecture.file[index];
-		this.setState({etat: 'preparation', index, titre: entree.titre, erreur: '', url: ''});
+		const demande = format || this.candidats[this.rangFormat] || 'hls';
+		this.setState({
+			etat: 'preparation',
+			index,
+			titre: entree.titre,
+			erreur: '',
+			url: '',
+			format: demande,
+			formatEffectif: '',
+			reessaye: reessaye === true
+		});
 		service
-			.resolveStream({profileId: lecture.profilId, ref: entree.ref, requestedFormat: 'auto'})
+			.resolveStream({profileId: lecture.profilId, ref: entree.ref, requestedFormat: demande})
 			.then((resultat) => {
 				if (!resultat.ok) {
 					this.setState({etat: 'erreur', erreur: service.messageDe(resultat)});
 					return;
 				}
 				const resolution = resultat.data || {};
-				this.setState({etat: 'lecture', url: resolution.url || ''});
+				// L'URL **réellement** servie peut ne pas être dans le format demandé : un mode
+				// `storedSecret` rend l'URL mémorisée à l'import (son conteneur est celui du profil).
+				// Le dire évite de recharger deux fois la même URL sous deux étiquettes différentes.
+				const effectif =
+					resolution.preferredMime === mediaformats.MIME.hls
+						? 'hls'
+						: resolution.preferredMime === mediaformats.MIME.ts
+							? 'ts'
+							: demande;
+				this.setState({etat: 'lecture', url: resolution.url || '', formatEffectif: effectif});
 			})
 			.catch((erreur) => this.setState({etat: 'erreur', erreur: erreur.message}));
 	}
@@ -121,16 +153,36 @@ class Lecteur extends React.Component {
 		}
 	}
 
+	/**
+	 * Échec média : trois marches seulement, dans cet ordre — (1) re-résoudre le **même** format (une
+	 * URL peut avoir expiré), (2) essayer l'**autre** conteneur, (3) abandonner en disant ce qui a été
+	 * essayé. Jamais de boucle : un format n'est demandé qu'une fois, plus une re-résolution.
+	 */
 	surErreurMedia() {
 		const video = this.video.current;
 		const code = video && video.error ? video.error.code : 0;
+		// Ce qui compte pour la liste des essais est le **conteneur réellement servi**, pas le format
+		// demandé : demander « ts » sur un index qui mémorise des URL `.m3u8` renvoie la même URL.
+		const effectif = this.state.formatEffectif || this.state.format;
+		const essayes = this.state.formatsEssayes.indexOf(effectif) === -1
+			? this.state.formatsEssayes.concat([effectif])
+			: this.state.formatsEssayes.slice();
 		if (this.state.url && !this.state.reessaye) {
-			this.setState({reessaye: true}, () => this.preparer(this.state.index));
+			// même format, une seule re-résolution (URL expirée)
+			this.setState({reessaye: true, formatsEssayes: essayes}, () => this.preparer(this.state.index, this.state.format, true));
+			return;
+		}
+		const suivant = mediaformats.autre(effectif);
+		if (suivant && essayes.indexOf(suivant) === -1) {
+			// l'autre conteneur : c'est ce que la 0B demande de qualifier, il se tente
+			this.rangFormat = Math.max(0, this.candidats.indexOf(suivant));
+			this.setState({formatsEssayes: essayes}, () => this.preparer(this.state.index, suivant));
 			return;
 		}
 		this.setState({
 			etat: 'erreur',
-			erreur: 'lecture impossible (MediaError ' + code + ') — flux expiré ou format non pris en charge'
+			formatsEssayes: essayes,
+			erreur: mediaformats.messageErreurMedia(code, essayes)
 		});
 	}
 
@@ -139,7 +191,9 @@ class Lecteur extends React.Component {
 	}
 
 	surClicReessayer() {
-		this.setState({reessaye: false}, () => this.preparer(this.state.index));
+		// Réessayer repart de l'ordre déclaré par la plateforme : l'état d'essai est remis à zéro.
+		this.rangFormat = 0;
+		this.setState({reessaye: false, formatsEssayes: []}, () => this.preparer(this.state.index));
 	}
 
 	surClicQuitter() {

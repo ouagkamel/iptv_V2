@@ -247,6 +247,11 @@ Pour chaque cellule (modèle × format × codec) : *smoke* 1–3 essais en déve
 
 - [ ] HLS (`.m3u8`) ; MPEG-TS progressif (`.ts`) ; URL **sans extension** avec `Content-Type`
       correct, absent, puis générique.
+      *Premier relevé (2026-10-08, appareil de l'essai)* : le lecteur a refusé le **MPEG-TS
+      progressif** (`MediaError 4`) alors que le flux était servi (302 → 200 `video/mp2t`) ; depuis
+      0.1.15 le format est choisi d'après `canPlayType` et l'autre conteneur est essayé une fois.
+      La ligne « formats de flux déclarés » de la page de diagnostic donne la valeur exacte à
+      consigner ici.
 - [ ] Redirect 302 même hôte, puis autre hôte. HTTP clair (avertissement une fois par profil/hôte).
 - [ ] H.264, HEVC, MPEG-2, AAC, AC-3, E-AC-3, 1080i, plus au moins un cas non supporté à consigner.
 - [ ] Zapping coalescé : le flux précédent est **fermé** avant le suivant (aucun second décodeur).

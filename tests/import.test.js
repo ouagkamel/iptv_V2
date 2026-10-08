@@ -184,7 +184,8 @@ harness.describe('Import Xtream : index publie (§2.4)', function () {
         var reader = openReader(base, 1);
         assert.equal(reader.streamMode(0), 'storedSecret', 'mode memorise');
         var details = reader.getDetails(0);
-        assert.equal(details.heavy.u, PORTAL_URL + '/live/testeur/secret/1000.ts', 'URL conservee dans la charge chiffree');
+        // le format memorise suit la preference du profil : `auto` = HLS depuis D-44
+        assert.equal(details.heavy.u, PORTAL_URL + '/live/testeur/secret/1000.m3u8', 'URL conservee dans la charge chiffree');
         var raw = fs.readFileSync(path.join(base, 'index-v1', 'payload.bin'));
         assert.ok(raw.toString('utf8').indexOf('secret') === -1, 'aucun identifiant en clair sur le disque');
         assert.ok(raw.toString('utf8').indexOf('testeur') === -1, 'aucun utilisateur en clair sur le disque');
@@ -209,14 +210,14 @@ harness.describe('Import Xtream : index publie (§2.4)', function () {
         assert.equal(reader.streamMode(0), 'derived', 'mode reconstruit');
         var details = reader.getDetails(0);
         assert.equal(details.heavy.u, undefined, 'aucune URL stockee');
-        assert.equal(details.heavy.f, '/live/{credentials}/1000.ts', 'forme repliee sans secret');
+        assert.equal(details.heavy.f, '/live/{credentials}/1000.m3u8', 'forme repliee sans secret');
         var raw = fs.readFileSync(path.join(base, 'index-v1', 'payload.bin')).toString('utf8');
         assert.ok(raw.indexOf('/live/') === -1, 'la charge reste chiffree sur le disque');
         assert.ok(raw.indexOf('secret') === -1, 'aucun mot de passe sur le disque');
         var forms = [0, 1, 2].map(function (ordinal) {
           return reader.getDetails(ordinal).heavy.f;
         });
-        assert.deepEqual(forms, ['/live/{credentials}/1000.ts', '/live/{credentials}/1001.ts', '/live/{credentials}/1002.ts'], 'formes repliees');
+        assert.deepEqual(forms, ['/live/{credentials}/1000.m3u8', '/live/{credentials}/1001.m3u8', '/live/{credentials}/1002.m3u8'], 'formes repliees');
         reader.close();
         reader.close();
       });
