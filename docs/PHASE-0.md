@@ -22,7 +22,7 @@ npm run pack:webos                        # compile le service puis produit rele
 # sur la TV : mode développeur activé (application « Developer Mode »), même compte LG que le CLI
 ares-setup-device --add tv --info "host=<IP de la TV>" --passphrase   # la TV affiche la phrase
 ares-device  --device tv --system-info                                # doit répondre : mode développeur visible
-ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.8_all.ipk
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.12_all.ipk
 ares-launch  --device tv com.ouagkamel.app.iptvplayer
 ```
 
@@ -39,7 +39,7 @@ paquet — la bannière de la page affiche alors la même séquence que ci-desso
 ```bash
 ares-install --device tv --listfull                                  # version réellement installee
 ares-install --device tv -r com.ouagkamel.app.iptvplayer             # desinstallation complete
-ares-install --device tv com.ouagkamel.app.iptvplayer_0.1.8_all.ipk  # reinstallation
+ares-install --device tv com.ouagkamel.app.iptvplayer_0.1.12_all.ipk  # reinstallation
 # redemarrer la TV : le hub relit la liste de ses services au demarrage
 ares-inspect --device tv -s com.ouagkamel.app.iptvplayer.service -o   # lance le service et ouvre sa console
 ```
@@ -65,6 +65,15 @@ seconde, la cause est affichée juste après (chargement `lib/service/main.js` i
 Si la page reste noire, vérifier la version installée (`ares-install --device tv --listfull`), puis
 reproduire hors TV : `node tools/render-app.js release/package` (démarrage, thème, ressources) et
 `node tools/inspecter-rendu.js release/package` (contraste, capture d'écran).
+
+**Base locale (DB8) en échec sur le simulateur (2026-10-08, essai 0.1.11)** — la page de diagnostic
+affichait `db.ok: false`, `erreur : « Creation du kind DB8 refusee »`, `sonde : « echec (putKind
+profiles) : creation du kind DB8 refusee »`. L'absence de **tout** code et de **tout** texte de la
+plateforme était l'indice : un refus réel de DB8 arrive toujours avec son code. La cause était le
+**pont LS2** : `webos-service` livre la réponse dans un objet `Message` dont la charge utile est
+`payload`, et le pont lisait `message.returnValue` au premier niveau — un `putKind` réussi passait
+donc pour refusé (D-41, corrigé en **0.1.12**). Contrôle attendu après installation : *Réglages* →
+« Page de diagnostic (0A) » → `db.ok: true` et `sonde : ok (ecriture puis relecture indexee)`.
 
 **Au lancement, l'interface doit afficher l'accueil à quatre cartes.** Le parcours minimal de la
 0A : *Live TV* → les catégories apparaissent (elles viennent de l'index, aucun appel fournisseur) →
