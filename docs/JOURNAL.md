@@ -1,5 +1,40 @@
 # Journal d'exécution
 
+## 2026-10-08 — `-3963 db: permission denied` sur `putKind` : le propriétaire du kind (0.1.14)
+
+**Ce qui a été observé** (simulateur, paquet 0.1.13) : le nom de service était le bon (plus de
+« Service does not exist »), mais la base refusait la création du kind —
+`appel LS2 refuse (-3963) : db: permission denied (luna://com.palm.db/putKind)`. Indice utile : le
+texte est **celui de DB8** (« db: permission denied »), pas celui du bus (« Denied method call … ») :
+c'est donc le moteur de permissions de la base qui refuse, pas une ACG.
+
+**La règle, dans les sources de DB8** (`MojDbKind::configure()`, appelée pour toute création) :
+
+```cpp
+m_owner = owner;                        // paramètre `owner` de putKind
+checkPermission(OpKindUpdate, req);     // if (hasOwnerPermission(req)) return; else deny();
+bool MojDbKind::hasOwnerPermission(req) { return (req.admin() || req.domain() == m_owner); }
+```
+
+`owner` doit donc être le **domaine de l'appelant**. Nous envoyions l'identifiant de l'application
+alors que l'appelant est le **service** : refus systématique, qu'aucune ACG ne peut corriger.
+
+| Réf. | Constat | Correctif |
+|---|---|---|
+| **D-43a** | `owner` valait toujours l'ID de l'application ; DB8 n'accepte que `req.domain() == owner` (`-3963`), création comprise | `OWNERS_DB8` : l'ID de l'application puis le nom du service, essayés dans cet ordre ; le premier accepté est retenu pour la session et exposé par le diagnostic (`db.owner`). Le refus `-3963` déclenche l'essai suivant ; si aucun n'est accepté, l'erreur **nomme les deux** |
+| **D-43b** | L'indice d'erreur du pont répétait la méthode (`luna://com.palm.db/putKind/putKind`) : `hostLabel` rendait « hôte/méthode » puis remplaçait l'hôte par cette chaîne | `hostLabel` rend le seul nom du service |
+| **D-43c** | La bannière attribuait tout refus de permission aux ACG | Elle explique désormais la règle du propriétaire, cite `db.owner`, et réserve les ACG au cas où le refus persiste |
+
+**Tests ajoutés** (`tests/db8.test.js`, 7 cas) : faux DB8 appliquant la règle réelle (`req.domain() ==
+owner`) — domaine = nom du service (un seul essai refusé, puis retenu) ; domaine = ID de l'application
+(aucun essai inutile) ; refus rendu **en réponse** plutôt qu'en rejet (même repli) ; aucun propriétaire
+accepté (les deux sont cités) ; le nom du service du client ne dérive pas de celui du service réel ;
+le diagnostic annonce `db.owner` ; l'indice d'erreur du pont ne double plus la méthode.
+
+**Contrôles** : `npm test` → **233 tests, 0 échec** (Node 20 **et** Node 8.12) ; `lint:node812`,
+`check:deps`, `typecheck` OK ; ipk public « publiable » ; 0 identifiant dans l'ipk et les deux
+archives ; paquet inspecté (`OWNERS_DB8`, règle `-3963`, indice corrigé, `db.owner`).
+
 ## 2026-10-08 — Base DB8 injoignable : bon nom de service et ACG déclarée (0.1.13)
 
 **Ce qui a été observé** (simulateur, paquet 0.1.12, page de diagnostic) : cette fois la cause est

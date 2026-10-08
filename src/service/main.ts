@@ -86,8 +86,11 @@ export function createLs2Caller(service: WebosServiceLike): Ls2Caller {
 
 /** Étiquette d'URI pour un message d'erreur : `luna://<service>/<commande>`, sans identifiant. */
 function hostLabel(uri: string): string {
-  const correspondance = /^luna:\/\/([^/]+)\/(.+)$/.exec(uri);
-  return correspondance ? correspondance[1] + '/' + correspondance[2] : 'service';
+  // Le seul nom du **service**, sans la méthode : l'appelant replace l'hôte dans l'URI complète.
+  // Rendre « service/methode » puis le réinsérer au même endroit doublait la méthode dans l'indice
+  // d'erreur affiché (`luna://com.palm.db/putKind/putKind`).
+  const correspondance = /^luna:\/\/([^/]+)/.exec(uri);
+  return correspondance ? correspondance[1] : 'service';
 }
 
 /**

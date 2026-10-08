@@ -29,9 +29,34 @@ export const APP_ID = 'com.ouagkamel.app.iptvplayer';
 export const DB_SERVICES: string[] = ['com.palm.db', 'com.webos.service.db'];
 export const DB_SERVICE = DB_SERVICES[0];
 
+/** Nom du service JS (le meme que `SERVICE_NAME` de `ls2/service.ts`, verifie par les tests). */
+export const SERVICE_NAME_DB8 = APP_ID + '.service';
+
+/**
+ * Valeurs possibles du parametre `owner` d'un kind, **dans l'ordre d'essai**.
+ *
+ * DB8 n'accorde `putKind` qu'au proprietaire du kind — ou a un administrateur :
+ * `MojDbKind::hasOwnerPermission` rend vrai pour `req.admin() || req.domain() == m_owner`, et
+ * `configure()` refuse (`-3963 db: permission denied`) tout autre appelant, y compris pour une
+ * **creation**. L'appelant, ici, est le **service** : sur un appareil ou le domaine du service est
+ * son nom (`…service`), declarer l'ID de l'application comme proprietaire est donc refuse (D-43).
+ * On essaie l'ID de l'application (le domaine des applications, et ce que la purge des kinds
+ * `private` attend a la desinstallation) puis le nom du service ; le premier accepte est retenu.
+ */
+export const OWNERS_DB8: string[] = [APP_ID, SERVICE_NAME_DB8];
+
 /** Vrai si l'echec dit que le **service** n'existe pas (nom a reessayer), et non la base. */
 export function serviceIntrouvable(erreur: unknown): boolean {
   return /service\s+does\s+not\s+exist|no\s+such\s+service/i.test(texteDe(erreur));
+}
+
+/**
+ * Vrai si le refus vient du **moteur de permissions de DB8** : `-3963 db: permission denied`. Dans ce
+ * cas precis, `owner` ne correspond pas au domaine de l'appelant : un autre proprietaire peut etre
+ * accepte (D-43). Ne jamais confondre avec « Service does not exist » (D-42) ni avec un refus de bus.
+ */
+export function permissionRefusee(message: string): boolean {
+  return /permission\s+denied|-3963/.test(message);
 }
 
 /**
@@ -176,6 +201,8 @@ export interface SondageDb8 {
   message?: string;
   /** Nom du service DB8 effectivement retenu (`com.palm.db` sur televiseur). */
   service: string;
+  /** Proprietaire de kind accepte par la plateforme (`req.domain() == owner`, D-43). */
+  owner: string;
   kinds: Array<{kind: string; indexe: boolean; champs: string[]}>;
 }
 
@@ -187,6 +214,8 @@ export class Db8Client {
   private service: string | null = null;
   /** Dernier nom de service essaye : sert au diagnostic quand **aucun** nom ne repond. */
   private dernierNom: string | null = null;
+  /** Proprietaire de kind accepte par la plateforme (`null` tant qu'aucun n'a abouti). */
+  private owner: string | null = null;
 
   constructor(options: Db8ClientOptions) {
     this.call = options.call;
@@ -201,6 +230,11 @@ export class Db8Client {
   /** Nom de service a afficher au diagnostic : le nom retenu, sinon le dernier essaye. */
   serviceDbPourDiagnostic(): string {
     return this.service || this.dernierNom || '';
+  }
+
+  /** Proprietaire de kind retenu (`owner` exige par DB8), pour le diagnostic. */
+  ownerDbPourDiagnostic(): string {
+    return this.owner || '';
   }
 
   /**
@@ -396,7 +430,8 @@ export class Db8Client {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         kinds.push({ kind: kindOf(name), indexe: false, champs: [] });
-        return { ok: false, etape: 'putKind ' + name, message: message, kinds: kinds, service: this.serviceDbPourDiagnostic() };
+        return { ok: false, etape: 'putKind ' + name, message: message, kinds: kinds, service: this.serviceDbPourDiagnostic(),
+        owner: this.ownerDbPourDiagnostic() };
       }
     }
     const temoin = 'sonde-' + Date.now().toString(36);
@@ -410,13 +445,16 @@ export class Db8Client {
           etape: 'find probes',
           message: 'temoin ecrit mais non relu par son index (' + relus.length + ' ligne(s))',
           kinds: kinds,
-          service: this.serviceDbPourDiagnostic()
+          service: this.serviceDbPourDiagnostic(),
+        owner: this.ownerDbPourDiagnostic()
         };
       }
-      return { ok: true, etape: 'ecriture puis relecture indexee', kinds: kinds, service: this.serviceDbPourDiagnostic() };
+      return { ok: true, etape: 'ecriture puis relecture indexee', kinds: kinds, service: this.serviceDbPourDiagnostic(),
+        owner: this.ownerDbPourDiagnostic() };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, etape: 'ecriture/relecture du temoin', message: message, kinds: kinds, service: this.serviceDbPourDiagnostic() };
+      return { ok: false, etape: 'ecriture/relecture du temoin', message: message, kinds: kinds, service: this.serviceDbPourDiagnostic(),
+        owner: this.ownerDbPourDiagnostic() };
     }
   }
 
@@ -425,36 +463,72 @@ export class Db8Client {
     if (this.knownKinds[kind]) return;
     // Charge utile : le schéma du service (`putKind`) n'accepte que `id`, `owner`, `private`,
     // `indexes`, `revSets`… et rien d'autre (`additionalProperties: false`).
-    let reply: Record<string, unknown>;
-    try {
-      reply = await this.appel('putKind', {
-        id: kind,
-        owner: APP_ID,
-        private: true,
-        // DB8 : « All queries must be on indexed fields » — sans ces index, aucune requête ne répond.
-        indexes: KIND_INDEXES[name].map((index) => ({
-          name: index.name,
-          props: index.props.map((prop) => ({name: prop}))
-        }))
-      });
-    } catch (erreur) {
-      // Le pont LS2 rejette un appel refusé. Sur un kind **déjà enregistré**, un refus peut ne tenir
-      // qu'à cela (certaines versions de DB8 refusent au lieu de mettre à jour, là où celles d'OSE
-      // font une mise à jour) : le kind étant v2 — donc créé par cette version, avec ses index — on
-      // continue. Toute autre cause remonte telle quelle, permission comprise.
-      if (!kindDejaEnregistre(texteDe(erreur))) throw erreur;
+    //
+    // `owner` : DB8 n'accepte que le propriétaire du kind (`req.domain() == owner`, ou admin). Le
+    // domaine de l'appelant — le service — n'est pas celui de l'application sur tous les appareils :
+    // les deux valeurs plausibles sont essayées, la première acceptée est retenue (D-43).
+    const proprietaires = this.owner ? [this.owner] : OWNERS_DB8.slice();
+    const essayes: string[] = [];
+    let dernierDetail = '';
+    for (let i = 0; i < proprietaires.length; i += 1) {
+      const proprietaire = proprietaires[i];
+      essayes.push(proprietaire);
+      let reply: Record<string, unknown>;
+      try {
+        reply = await this.appel('putKind', {
+          id: kind,
+          owner: proprietaire,
+          private: true,
+          indexes: KIND_INDEXES[name].map((index) => ({
+            name: index.name,
+            props: index.props.map((prop) => ({ name: prop }))
+          }))
+        });
+      } catch (erreur) {
+        const texte = texteDe(erreur);
+        // Kind déjà enregistré (mise à jour refusée par certaines versions) : ce n'est pas un échec.
+        if (kindDejaEnregistre(texte)) {
+          this.owner = proprietaire;
+          this.knownKinds[kind] = true;
+          return;
+        }
+        // Propriétaire refusé : essayer la valeur suivante s'il en reste une.
+        if (permissionRefusee(texte) && i + 1 < proprietaires.length) {
+          dernierDetail = texte;
+          continue;
+        }
+        if (permissionRefusee(texte) && essayes.length > 1) {
+          throw new AppError(
+            'internal/unexpected',
+            'creation du kind DB8 refusee : permission refusee pour les proprietaires essayes (' +
+              essayes.join(', ') + ') : ' + texte
+          );
+        }
+        throw erreur;
+      }
+      if (reply.returnValue !== true) {
+        const detail = detailErreur(reply);
+        // Même tolérance quand le refus arrive en réponse (charge utile validée, `returnValue: false`).
+        if (kindDejaEnregistre(detail)) {
+          this.owner = proprietaire;
+          this.knownKinds[kind] = true;
+          return;
+        }
+        if (permissionRefusee(detail) && i + 1 < proprietaires.length) {
+          dernierDetail = detail;
+          continue;
+        }
+        throw new AppError('internal/unexpected', 'creation du kind DB8 refusee' + detail);
+      }
+      this.owner = proprietaire;
       this.knownKinds[kind] = true;
       return;
     }
-    if (reply.returnValue !== true) {
-      const detail = detailErreur(reply);
-      // Même tolérance quand le refus arrive en réponse (charge utile validée, `returnValue: false`),
-      // avec la même retenue : « Service does not exist » n'est pas « le kind existe déjà » (D-42).
-      if (!kindDejaEnregistre(detail)) {
-        throw new AppError('internal/unexpected', 'creation du kind DB8 refusee' + detail);
-      }
-    }
-    this.knownKinds[kind] = true;
+    throw new AppError(
+      'internal/unexpected',
+      'creation du kind DB8 refusee : permission refusee pour les proprietaires essayes (' +
+        essayes.join(', ') + ')' + (dernierDetail ? ' : ' + dernierDetail : '')
+    );
   }
 }
 

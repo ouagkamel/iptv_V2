@@ -689,3 +689,121 @@ harness.describe('Nom du service de base : `com.palm.db` sur televiseur, repli w
     });
   });
 });
+
+harness.describe('Proprietaire de kind : DB8 n accepte que le domaine appelant (D-43)', function () {
+  /**
+   * Faux DB8 appliquant la **regle reelle** de creation de kind : `MojDbKind::configure()` appelle
+   * `checkPermission(OpKindUpdate)`, qui n'accorde le droit qu'a `req.admin() || req.domain() ==
+   * m_owner` — sinon `-3963 db: permission denied`. Le domaine de l'appelant est le **service**.
+   */
+  function db8AvecDomaine(domaine, rendreEnReponse) {
+    var bus = new db8Lib.FakeDb8Bus();
+    var refus = [];
+    return {
+      bus: bus,
+      refus: refus,
+      call: function (uri, params) {
+        if (uri.indexOf('/putKind') !== -1 && params.owner !== domaine) {
+          refus.push(params.owner);
+          if (rendreEnReponse) {
+            return Promise.resolve({ returnValue: false, errorCode: -3963, errorText: 'db: permission denied' });
+          }
+          return Promise.reject(new Error('appel LS2 refuse (-3963) : db: permission denied (luna://com.palm.db/putKind)'));
+        }
+        return bus.call(uri, params);
+      }
+    };
+  }
+
+  harness.it('le domaine est le nom du service : ce proprietaire est retenu, une seule fois', function () {
+    var hub = db8AvecDomaine(db8Lib.SERVICE_NAME_DB8);
+    var db = new db8Lib.Db8Client({ call: hub.call, appId: db8Lib.APP_ID });
+    return db
+      .put('profiles', [{ id: 'p1', name: 'Maison' }])
+      .then(function () {
+        assert.equal(db.ownerDbPourDiagnostic(), db8Lib.SERVICE_NAME_DB8, 'proprietaire retenu : ' + db.ownerDbPourDiagnostic());
+        assert.equal(hub.refus.length, 1, 'un seul essai refuse (APP_ID), puis le bon');
+        return db.find('profiles', { id: 'p1' });
+      })
+      .then(function (lignes) {
+        assert.equal(lignes.length, 1, 'lecture servie apres retrait du proprietaire');
+      });
+  });
+
+  harness.it('le domaine est l identifiant de l application : aucun essai inutile', function () {
+    var hub = db8AvecDomaine(db8Lib.APP_ID);
+    var db = new db8Lib.Db8Client({ call: hub.call, appId: db8Lib.APP_ID });
+    return db.put('consents', [{ profileId: 'p1', kind: 'insecureHttp' }]).then(function () {
+      assert.equal(db.ownerDbPourDiagnostic(), db8Lib.APP_ID, 'proprietaire : ' + db.ownerDbPourDiagnostic());
+      assert.equal(hub.refus.length, 0, 'aucun refus');
+    });
+  });
+
+  harness.it('refus rendu en reponse (returnValue false) : meme repli', function () {
+    var hub = db8AvecDomaine(db8Lib.SERVICE_NAME_DB8, true);
+    var db = new db8Lib.Db8Client({ call: hub.call, appId: db8Lib.APP_ID });
+    return db.put('masterKeys', [{ profileId: 'p1', key: 'AAAA' }]).then(function () {
+      assert.equal(db.ownerDbPourDiagnostic(), db8Lib.SERVICE_NAME_DB8, 'proprietaire retenu par le chemin « reponse »');
+    });
+  });
+
+  harness.it('aucun proprietaire accepte : l erreur nomme les deux essayes', function () {
+    var hub = db8AvecDomaine('com.inconnu.domaine');
+    var db = new db8Lib.Db8Client({ call: hub.call, appId: db8Lib.APP_ID });
+    return db.put('profiles', [{ id: 'p1' }]).then(
+      function () {
+        throw new Error('une creation de kind refusee a ete acceptee');
+      },
+      function (erreur) {
+        assert.ok(/permission/.test(erreur.message), 'cause nommee : ' + erreur.message);
+        assert.ok(erreur.message.indexOf(db8Lib.APP_ID) !== -1, 'premier proprietaire cite');
+        assert.ok(erreur.message.indexOf(db8Lib.SERVICE_NAME_DB8) !== -1, 'second proprietaire cite');
+      }
+    );
+  });
+
+  harness.it('le nom du service du client est celui du service reel', function () {
+    // deux fichiers portent ce nom (le client DB8 ne peut pas importer `ls2/service.ts` : cycle) :
+    // le test est la garde qui empeche la derive
+    assert.equal(db8Lib.SERVICE_NAME_DB8, serviceLib.SERVICE_NAME, 'noms de service identiques');
+  });
+
+  harness.it('le diagnostic annonce le proprietaire retenu', function () {
+    var stack = makeStack();
+    return stack.bus.invoke('diagnostics', {}).then(function (reponses) {
+      var db = reponses[0].data.db;
+      assert.equal(db.ok, true, 'base jointe');
+      assert.ok(typeof db.owner === 'string' && db.owner.length > 0, 'proprietaire nomme : ' + db.owner);
+      assert.ok(db.owner === db8Lib.APP_ID || db.owner === db8Lib.SERVICE_NAME_DB8, 'proprietaire plausible : ' + db.owner);
+    });
+  });
+
+  harness.it('l indice d erreur du pont ne double plus la methode', function () {
+    var appelant = {
+      register: function () {},
+      call: function (uri, params, callback) {
+        // refus du bus, la charge utile n'arrive jamais : le pont compose son indice
+        var erreur = new Error('refus');
+        if (callback) throw erreur;
+      }
+    };
+    // le pont rejette sur reponse `returnValue: false` : on l'obtient ici par une reponse plate
+    var service = {
+      register: function () {},
+      call: function (uri, params, callback) {
+        callback({ payload: { returnValue: false, errorCode: -3963, errorText: 'db: permission denied' } });
+      }
+    };
+    return mainLib
+      .createLs2Caller(service)('luna://com.palm.db/putKind', {})
+      .then(
+        function () {
+          throw new Error('un refus a ete accepte');
+        },
+        function (erreur) {
+          assert.equal(erreur.hint, 'luna://com.palm.db/putKind', 'indice sans methode doublee : ' + erreur.hint);
+          assert.ok(erreur.message.indexOf('-3963') !== -1, 'code conserve');
+        }
+      );
+  });
+});

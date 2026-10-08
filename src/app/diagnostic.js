@@ -145,7 +145,7 @@ function environnement() {
     // le simulateur webOS n'enregistre pas les services déclarés par un .ipk : il faut les ajouter
     // à la main (File > Add Service). Le reconnaître évite de chercher un défaut côté paquet.
     simulateur: /simulator|emulator/i.test(navigator.userAgent),
-    versionPage: '0.1.13'
+    versionPage: '0.1.14'
   };
 }
 
@@ -235,8 +235,15 @@ function controleInitial() {
         }
         if (/permission denied/i.test(cause)) {
           conseils.push(
-            'Refus d’ACG : l’application doit déclarer <code>database.operation</code> et ' +
-              '<code>database.management</code> dans <code>requiredPermissions</code> (appinfo.json).'
+            'Refus de permission (-3963) : DB8 n’accepte de créer un kind que de **son propriétaire** — ' +
+              'la valeur <code>owner</code> doit être le domaine de l’appelant (l’application ou son service). ' +
+              'Le client essaie l’identifiant de l’application puis le nom du service et retient celui qui ' +
+              'est accepté : <code>db.owner</code> ci-dessus doit donc en nommer un.'
+          );
+          conseils.push(
+            'Si le refus persiste, vérifier aussi l’ACG déclarée : <code>database.operation</code> et ' +
+              '<code>database.management</code> dans <code>requiredPermissions</code> (appinfo.json), puis ' +
+              'réinstaller le paquet (le paquet d’installation génère les fichiers de permission).'
           );
         }
         conseils.push(

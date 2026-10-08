@@ -770,6 +770,9 @@ export class IptvService {
         // Nom du service DB8 retenu (`com.palm.db` sur televiseur, `com.webos.service.db` ailleurs) :
         // sans lui, un « Service does not exist » ne dit pas quel nom a ete essaye (D-42).
         service: sondage.service || this.db.serviceDbPourDiagnostic() || '(aucun)',
+        // Proprietaire de kind accepte par DB8 : `req.domain() == owner` est la seule autorisation
+        // de creation (D-43). L'afficher evite de redeviner cette regle au prochain essai.
+        owner: sondage.owner || this.db.ownerDbPourDiagnostic() || '(aucun)',
         kinds: sondage.kinds
       });
     } catch (error) {

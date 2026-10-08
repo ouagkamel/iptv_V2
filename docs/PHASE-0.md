@@ -85,6 +85,13 @@ retenu dans `db.service`. Les ACG `database.operation` et `database.management` 
 `ok (ecriture puis relecture indexee)`. Si un autre nom de service DB8 apparaît sur l'appareil,
 relever la liste (`ls-monitor -l` sur TV) et la consigner ici.
 
+**Base locale (DB8) : `-3963 db: permission denied` sur `putKind` (2026-10-08, essai 0.1.13)** — le
+nom de service était bon, mais DB8 n'accepte la création d'un kind que de **son propriétaire**
+(`MojDbKind::hasOwnerPermission` : `req.admin() || req.domain() == owner`). Le client essaie
+désormais l'ID de l'application puis le nom du service et retient celui qui est accepté (0.1.14),
+affiché dans `db.owner`. Si le refus persiste sur un appareil, recopier ici `db.service`, `db.owner`
+et `db.erreur` : le message nomme les deux propriétaires essayés.
+
 **Au lancement, l'interface doit afficher l'accueil à quatre cartes.** Le parcours minimal de la
 0A : *Live TV* → les catégories apparaissent (elles viennent de l'index, aucun appel fournisseur) →
 *Réglages* → « Tester la source » → « Importer (live) » → la progression va jusqu'à `terminé` avec
