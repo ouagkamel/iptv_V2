@@ -1,5 +1,22 @@
 # Journal d'exécution
 
+## 2026-10-11 — deux constructions du même code ne donnent pas le même `main.js` (iLib y inscrit un identifiant de cache)
+
+**Ce qui a été observé** : après la publication de 0.1.16, une reconstruction de la livraison publique
+donnait un `.ipk` de taille légèrement différente de celui publié, alors que **tout le reste** était
+identique — 95 fichiers sur 95, un seul écart : `ui/main.js`, **même taille** (968 676 o), empreintes
+différentes.
+
+**La cause** : iLib inscrit dans le bundle un identifiant de cache **horodaté** —
+`n.ilib_cache_id="1791707994218"` (build publié) contre `n.ilib_cache_id="1791709081205"` (build
+suivant). Le fichier ne diffère que par ces **6 octets** (les chiffres du cache id) : le code et les
+ressources sont, pour le reste, identiques octet pour octet.
+
+**Conséquence pratique** : deux constructions successives du même code ne peuvent pas être comparées
+par empreinte — comparer le **contenu** (ou neutraliser `ilib_cache_id`) avant de conclure à une
+différence. Les pièces publiées restent la référence de la version : aucune republication n'est
+nécessaire, et les contrôles de fuite portent sur le contenu, pas sur l'empreinte.
+
 ## 2026-10-11 — `MediaError 4` : le portail et le codec hors de cause, le moteur de l'appareil en cause ; voie de secours MSE (0.1.16)
 
 **Ce qui a été observé** (canal 159335) : « lecture impossible (MediaError 4) — format non pris en

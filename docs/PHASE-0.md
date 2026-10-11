@@ -6,6 +6,10 @@ copie d'écran, réponse écrite), jamais par extrapolation.
 
 ## 0A — Socle applicatif et plateforme
 
+> **Feuilles de route prêtes à exécuter** : `docs/ESSAI-0A.md` (installation, preuves attendues
+> étape par étape, fiche de relevé à renvoyer) et `docs/DISTRIBUTION-LG.md` (message à LG Seller
+> Lounge, à lancer dès le début de la 0A).
+
 ### Paquet à installer (interface + page de diagnostic)
 
 Le paquet livré contient le service complet (§15.4), **l'interface Enact de V1-A** (accueil à quatre
