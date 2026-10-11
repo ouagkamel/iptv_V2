@@ -1,5 +1,53 @@
 # Journal d'exécution
 
+## 2026-10-11 — `MediaError 4` : le portail et le codec hors de cause, le moteur de l'appareil en cause ; voie de secours MSE (0.1.16)
+
+**Ce qui a été observé** (canal 159335) : « lecture impossible (MediaError 4) — format non pris en
+charge par ce lecteur ; formats essayés : hls, ts », alors que le journal réseau livré montre
+`159335.m3u8` **et** `159335.ts` servis (302 → 200). Les deux conteneurs natifs étaient donc refusés.
+
+**Ce que les mesures ont montré** (aucun identifiant journalisé) :
+
+* le flux est **sain et conforme** : segment complet de 3 911 904 o, ffprobe → **H.264 High @ L3.1,
+  1280×720, 25 i/s + AAC HE-AAC 48 kHz**, MPEG-TS ≈ 3,1 Mb/s, **0 erreur** ; PMT → H.264 (0x1b) +
+  AAC-ADTS (0x0f) ;
+* la playlist HLS est valide (525 o, 6 segments de 10 s, sans clé) et les segments se récupèrent en
+  200 depuis l'hôte d'edge, sans redirection ;
+* **l'agent utilisateur ne change rien** : service, UA webOS 6, UA webOS 4, VLC et Chrome reçoivent
+  exactement la même playlist et le même flux ;
+* **banc Chromium** (même classe de moteur que le simulateur) : HLS natif **lit**, MPEG-TS natif
+  **rend MediaError 4**, et `hls.js` sous MSE **lit** (30 s de flux, 0 erreur).
+
+**La cause** : l'appareil de test est le **simulateur** (webOS TV 26 = Chromium 132). Chromium n'a de
+lecteur HLS intégré que depuis la version 124 et n'a pas de démultiplexeur MPEG-TS ; LG documente que
+« les spécifications vidéo/audio du simulateur diffèrent des vraies TV ». Aucune application ne peut
+lire ce direct par les voies natives dans ce moteur — le défaut n'était ni le portail, ni le codec,
+ni le service, ni l'ordre des formats.
+
+| Réf. | Constat | Décision |
+|---|---|---|
+| **D-45a** | Le simulateur ne peut lire ni HLS ni MPEG-TS natifs | Quatrième marche **bornée** du lecteur : `hls.js` (MSE) après l'échec des deux conteneurs natifs |
+| **D-45b** | Un `import` statique chargerait HLS.js à chaque démarrage (§422) | La bibliothèque est **vendue au paquet** et injectée **à la demande** (`vendor/hls.min.js`), jamais sur le chemin par défaut |
+| **D-45c** | Un repli lancé sans vérification échoue en silence | Proposé seulement si `MediaSource.isTypeSupported(H.264/AAC)` ; une tentative, jamais de boucle ; le message final nomme `hls, ts, mse` |
+| **D-45d** | `hls.js` ne lit pas un MPEG-TS brut | Le repli exige une URL `.m3u8` (`estHls`) et dit pourquoi sinon |
+| **D-45e** | §4.6 : aucun décodeur ne survit au zapping | Instance `hls.js` détruite au changement de chaîne, à la sortie et au réessai ; `<video>` toujours unique |
+| **D-45f** | La 0A doit constater le repli sur l'appareil | Diagnostic : ligne MSE + bouton « Tester le repli MSE » (fichier présent, `Hls.isSupported()`) |
+| **D-45g** | Un échec de repli doit être diagnosticable | La cause `hls.js` (type/détails) s'affiche sous le message normalisé |
+
+**Écart assumé** : la spécification range « toute bibliothèque MSE » dans les évolutions après
+mesure/prototype ciblé (§422). La mesure est faite (bancs), le besoin est celui de l'appareil de
+test ; le repli est livré hors du chemin par défaut, borné, et jamais engagé quand `MediaSource` est
+absent. Licence Apache 2.0 respectée (notice + texte complet dans le paquet).
+
+**Tests ajoutés** : `tests/hls.test.js` (chargeur : injection unique, résolution `window.Hls`,
+échecs nommés, nouvel essai après échec) ; `tests/mediaformats.test.js` (+4 cas : message sans code,
+`mseSupport`, `estHls`, résumé MSE) ; `tests/package.test.js` (lecteur : repli borné et `<video>`
+unique ; paquet : `hls.min.js` + licence présents **une fois**, octet pour octet identiques).
+
+**Contrôles** : `npm run verify` → **254 tests, 0 échec**, y compris sous **Node 8.12** réel ;
+`enact pack` sans avertissement ; preuve de lecture avec le **fichier du paquet** (injection 28 ms,
+hls.js 1.7.3, direct 159335, 1280×720, 0 erreur).
+
 ## 2026-10-08 — `MediaError 4` à la lecture : le conteneur servi ne suivait pas le lecteur (0.1.15)
 
 **Ce qui a été observé** (clic sur une chaîne) : « lecture impossible (MediaError 4) — flux expiré ou

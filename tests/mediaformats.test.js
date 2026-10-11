@@ -8,6 +8,10 @@
  * était pourtant servi (302 → 200) mais la lecture échouait en `MediaError 4`. L'ordre d'essai
  * (HLS d'abord, MPEG-TS ensuite), le repli borné sur l'autre conteneur et le message qui **nomme les
  * formats essayés** vivent dans un module sans dépendance — c'est lui qui est testé ici.
+ *
+ * D-45 ajoute la **voie de secours MSE** (`hls.js`) : elle est proposée après l'échec des deux
+ * conteneurs natifs, et seulement si la plateforme expose MSE pour le H.264/AAC. Ce qui se teste ici
+ * est la **décision** (support, nature de l'URL, message) — pas la lecture, qui se prouve au banc.
  */
 
 var assert = require('./assert');
@@ -80,6 +84,47 @@ harness.describe('Formats de lecture : ordre déclaré par la plateforme (D-44)'
     assert.ok(resume.indexOf('HLS') !== -1 && resume.indexOf('probably') !== -1, 'HLS annoncé : ' + resume);
     assert.ok(resume.indexOf('MPEG-TS') !== -1 && resume.indexOf('non') !== -1, 'MPEG-TS non déclaré : ' + resume);
     assert.equal(media.resume(null).indexOf('non') !== -1, true, 'sans canPlayType : « non » partout');
+  });
+
+  harness.it('aucun code media : le message dit la fin de toutes les voies, pas « MediaError 0 »', function () {
+    var message = media.messageErreurMedia(0, ['hls', 'ts', 'mse']);
+    assert.ok(message.indexOf('MediaError') === -1, 'pas de faux code : ' + message);
+    assert.ok(message.indexOf('aucune voie de lecture') !== -1, 'cause lisible : ' + message);
+    assert.ok(message.indexOf('hls, ts, mse') !== -1, 'les trois voies essayees sont nommees : ' + message);
+  });
+
+  harness.it('la voie MSE n est annoncée que si la plateforme l expose (D-45)', function () {
+    assert.equal(media.mseSupport(null), false, 'aucun mediateur : pas de repli');
+    assert.equal(media.mseSupport({}), false, 'MediaSource absent : pas de repli');
+    assert.equal(
+      media.mseSupport({MediaSource: {}}), true,
+      'MediaSource sans isTypeSupported reste une voie possible'
+    );
+    var accepte = {MediaSource: {isTypeSupported: function () { return true; }}};
+    var refuse = {MediaSource: {isTypeSupported: function () { return false; }}};
+    var casse = {MediaSource: {isTypeSupported: function () { throw new Error('refus'); }}};
+    assert.equal(media.mseSupport(accepte), true, 'H.264/AAC accepte : repli propose');
+    assert.equal(media.mseSupport(refuse), false, 'codec refuse : repli ecarte');
+    assert.equal(media.mseSupport(casse), false, 'isTypeSupported qui leve : repli ecarte');
+    assert.ok(media.MIME_MSE.indexOf('avc1') !== -1, 'le codec demande est bien le H.264 du direct');
+  });
+
+  harness.it('le repli ne vise qu une playlist HLS, jamais un TS brut', function () {
+    assert.equal(media.estHls('http://portail/live/u/p/1.m3u8'), true);
+    assert.equal(media.estHls('http://portail/live/u/p/1.m3u8?token=abc'), true, 'parametres ignores');
+    assert.equal(media.estHls('http://edge/play/1.m3u8#frag'), true, 'fragment ignore');
+    assert.equal(media.estHls('http://portail/live/u/p/1.M3U8'), true, 'casse ignoree');
+    assert.equal(media.estHls('http://edge/play/1'), false, 'URL sans extension : rien a lire par hls.js');
+    assert.equal(media.estHls('http://portail/live/u/p/1.ts'), false, 'un TS brut n est pas une playlist');
+    assert.equal(media.estHls(''), false);
+    assert.equal(media.LIBELLE_MSE, 'mse', 'le nom porte au message est celui du repli');
+  });
+
+  harness.it('le resume de diagnostic annonce aussi la voie MSE', function () {
+    var resume = media.resume(null, {MediaSource: {isTypeSupported: function () { return true; }}});
+    assert.ok(resume.indexOf('MSE') !== -1, 'MSE annoncee : ' + resume);
+    assert.ok(resume.indexOf('oui') !== -1, 'support dit oui : ' + resume);
+    assert.ok(media.resume(null).indexOf('MSE') !== -1, 'sans mediateur : la ligne existe et dit non');
   });
 
   harness.it('le module est chargeable dans une page et sous Node', function () {

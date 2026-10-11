@@ -63,10 +63,73 @@ function mediaformats() {
 function formatsDeclares() {
   var video = document.createElement('video');
   var jouer = typeof video.canPlayType === 'function' ? video.canPlayType.bind(video) : null;
+  var module = mediaformats();
   return {
-    resume: mediaformats().resume(jouer),
-    ordre: mediaformats().candidats(jouer).join(' puis ')
+    resume: module.resume(jouer, window),
+    ordre: module.candidats(jouer).join(' puis '),
+    // D-45 : la voie de secours n'est proposée que si le moteur expose MSE (H.264/AAC).
+    mse: typeof module.mseSupport === 'function' ? module.mseSupport(window) : false
   };
+}
+
+/** Rapport du test de repli : même forme que les autres sorties (titre + texte), sans JSON — il n'y
+ *  a pas de charge de bus ici, seulement un constat d'appareil. */
+function rapportRepli(texte) {
+  el('sortie').textContent = '// Repli MSE\n' + texte;
+}
+
+/**
+ * **Repli MSE (D-45)** : le fichier `vendor/hls.min.js` est-il bien dans le paquet, et le moteur
+ * sait-il s'en servir ? C'est la seule vérification qui dit, sans lancer de flux, si le repli peut
+ * sauver la lecture sur **cet** appareil (un Chromium sans HLS natif l'exige ; la TV n'en a pas
+ * besoin). Le script est injecté comme le fait le lecteur — jamais avant, jamais ailleurs.
+ */
+function verifierRepli() {
+  var chemin = 'vendor/hls.min.js';
+  var lecteur = mediaformats();
+  if (typeof lecteur.mseSupport === 'function' && !lecteur.mseSupport(window)) {
+    journal('repli MSE : le moteur ne declare pas lire le H.264/AAC (MediaSource.isTypeSupported)', 'ko');
+    rapportRepli('indisponible sur cet appareil : MediaSource ne lit pas le H.264/AAC');
+    return;
+  }
+  var requete = new XMLHttpRequest();
+  requete.open('GET', chemin, true);
+  requete.onload = function () {
+    var octets = requete.responseText ? requete.responseText.length : 0;
+    // un fichier lu en `file://` repond statut 0 avec un corps : c'est le cas normal sur la TV
+    if (requete.status !== 0 && requete.status !== 200) {
+      journal('repli MSE : ' + chemin + ' illisible (HTTP ' + requete.status + ')', 'ko');
+      rapportRepli(chemin + ' illisible depuis l application (HTTP ' + requete.status + ')');
+      return;
+    }
+    journal('repli MSE : ' + chemin + ' present (' + octets + ' octets)');
+    var balise = document.createElement('script');
+    balise.src = chemin;
+    balise.onload = function () {
+      var present = !!(window.Hls && typeof window.Hls.isSupported === 'function');
+      var supporte = present && window.Hls.isSupported();
+      var version = present ? ' hls.js ' + window.Hls.version : '';
+      journal(
+        'repli MSE : ' + (present ? 'hls.js charge' + version + (supporte ? ' et supporte' : ' mais MSE refuse') : 'script charge sans exposer Hls'),
+        present && supporte ? 'ok' : 'ko'
+      );
+      rapportRepli(chemin + ' : ' + octets + ' octets ; ' + (present ? 'hls.js ' + window.Hls.version + (supporte ? ' utilisable' : ' present mais MSE refuse') : 'script charge sans Hls'));
+    };
+    balise.onerror = function () {
+      journal('repli MSE : injection de ' + chemin + ' refusee par le moteur', 'ko');
+      rapportRepli('injection de ' + chemin + ' refusee');
+    };
+    document.head.appendChild(balise);
+  };
+  requete.onerror = function () {
+    journal('repli MSE : ' + chemin + ' absent du paquet', 'ko');
+    rapportRepli(chemin + ' absent du paquet');
+  };
+  try {
+    requete.send();
+  } catch (erreur) {
+    journal('repli MSE : lecture locale impossible (' + erreur.message + ')', 'ko');
+  }
 }
 
 /**
@@ -167,7 +230,7 @@ function environnement() {
     // le simulateur webOS n'enregistre pas les services déclarés par un .ipk : il faut les ajouter
     // à la main (File > Add Service). Le reconnaître évite de chercher un défaut côté paquet.
     simulateur: /simulator|emulator/i.test(navigator.userAgent),
-    versionPage: '0.1.15'
+    versionPage: '0.1.16'
   };
 }
 
@@ -474,6 +537,7 @@ document.addEventListener('DOMContentLoaded', function () {
     afficherEnvironnement(null);
     journal('environnement actualisé');
   };
+  if (el('btn-repli')) el('btn-repli').onclick = function () { verifierRepli(); };
 
   controleInitial();
 

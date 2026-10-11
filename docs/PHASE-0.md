@@ -252,6 +252,16 @@ Pour chaque cellule (modèle × format × codec) : *smoke* 1–3 essais en déve
       0.1.15 le format est choisi d'après `canPlayType` et l'autre conteneur est essayé une fois.
       La ligne « formats de flux déclarés » de la page de diagnostic donne la valeur exacte à
       consigner ici.
+      *Deuxième relevé (2026-10-11, 0.1.15, canal 159335)* : **les deux** conteneurs refusés
+      (`formats essayés : hls, ts`) alors que le portail les servait tous les deux (302 → 200). Le
+      dossier `docs/DIAGNOSTIC-LECTURE-SIMULATEUR.md` établit que le flux est sain et conforme
+      (H.264 High 1280×720 + AAC HE-AAC, PMT vérifiée), que **l'agent utilisateur n'y change rien**,
+      et que le moteur de l'appareil de test (simulateur webOS TV 26 = Chromium 132, sans lecteur
+      HLS intégré ni démultiplexeur MPEG-TS) ne peut lire ni l'un ni l'autre par voie native. Depuis
+      **0.1.16**, une marche **bornée** de repli MSE (`hls.js`, chargé à la demande, hors du chemin
+      par défaut §422) lit le flux là où le natif manque ; à confirmer par la 0A sur TV réelle. La
+      page de diagnostic porte un bouton **« Tester le repli MSE »** et la ligne des formats
+      déclarés indique désormais aussi le support MSE.
 - [ ] Redirect 302 même hôte, puis autre hôte. HTTP clair (avertissement une fois par profil/hôte).
 - [ ] H.264, HEVC, MPEG-2, AAC, AC-3, E-AC-3, 1080i, plus au moins un cas non supporté à consigner.
 - [ ] Zapping coalescé : le flux précédent est **fermé** avant le suivant (aucun second décodeur).

@@ -1,0 +1,36 @@
+hls.js — bibliothèque de lecture HLS par Media Source Extensions (MSE)
+==============================================================
+
+  fichier     : hls.min.js
+  version     : 1.7.3
+  licence     : Apache License 2.0 (voir hls.js.LICENSE.txt — notice de l'auteur + texte complet)
+  auteur      : Dailymotion / video-dev (https://github.com/video-dev/hls.js)
+  taille      : 619 692 octets (≈ 180 Kio compressé)
+  empreinte   : voir SHA256SUMS.txt à la racine de la version publiée
+
+Pourquoi ce fichier est **embarqué dans le paquet** et non chargé d'un CDN
+-----------------------------------------------------------------------
+Une application webOS n'a pas de réseau « garanti » et la politique de la V1 interdit toute
+dépendance d'exécution distante : le paquet doit être autosuffisant. La bibliothèque est donc
+recopiée telle quelle dans l'application.
+
+Pourquoi elle n'est **jamais chargée sur le chemin par défaut** (spécification §422)
+-------------------------------------------------------------------------------
+La V1 lit avec le **pipeline média natif** de la TV (`<video>` + HLS ou MPEG-TS du système).
+`vendor/hls.min.js` n'est injecté qu'**après** l'échec des deux conteneurs natifs, et seulement
+si la plateforme expose MSE pour le H.264/AAC (`MediaSource.isTypeSupported`). Sur une TV LG,
+ce cas ne se produit pas : le fichier reste sur le disque, jamais exécuté — aucun coût CPU ni
+mémoire au démarrage, et le chemin natif reste inchangé.
+
+Quand il est chargé, pour qui
+-----------------------------
+  * appareils dont le moteur média n'a **pas** de lecteur HLS intégré (le moteur webOS TV 26 est
+    un Chromium 132 : Chromium n'a de lecteur HLS intégré que depuis la version 124, et pas de
+    démultiplexeur MPEG-TS). C'est le cas du **simulateur**, où ni le HLS ni le TS natif ne
+    peuvent être lus — quelle que soit l'application (voir docs/DIAGNOSTIC-LECTURE-SIMULATEUR.md) ;
+  * TV réelles si, et seulement si, leurs deux voies natives échouent — le repli est alors le
+    seul moyen de lire le flux, et il est **borné** : une tentative, jamais de boucle.
+
+Le chargement se fait par injection d'un `<script src="vendor/hls.min.js">` (voir
+`ui/src/services/hls.js`) ; aucune autre ressource n'est chargée, et le `<video>` reste
+**unique** : la même balise est alimentée par MSE au lieu de `src`.

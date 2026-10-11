@@ -15,6 +15,10 @@
  *  - **formats (0B)** : l'ordre d'essai est celui que la plateforme déclare (`canPlayType`) — HLS
  *    d'abord, MPEG-TS ensuite — et l'autre conteneur est essayé **une** fois avant d'abandonner
  *    (D-44). Le message final nomme les formats réellement essayés.
+ *  - **voie de secours (D-45)** : quand ces deux conteneurs natifs échouent alors que la plateforme
+ *    expose MSE, `hls.js` est chargé (à la demande) et alimente le **même** `<video>` — jamais un
+ *    second élément, jamais sur le chemin par défaut (§422). Un moteur sans lecteur HLS intégré ni
+ *    démultiplexeur MPEG-TS (Chromium sans HLS natif, donc le simulateur) n'a que cette voie-là.
  */
 
 import React from 'react';
@@ -24,6 +28,7 @@ import Spinner from '@enact/sandstone/Spinner';
 import Spotlight from '@enact/spotlight';
 
 import service from '../services/service';
+import hlsjs from '../services/hls';
 import mediaformats from '../../../src/app/mediaformats.js';
 import css from './Lecteur.module.less';
 
@@ -43,7 +48,12 @@ class Lecteur extends React.Component {
 			reessaye: false,
 			format: 'hls',
 			formatEffectif: '',
-			formatsEssayes: []
+			formatsEssayes: [],
+			// voie de secours (D-45) : `mse` dit que la source est poussée par hls.js, `mseTentee`
+			// borne le repli à **une** tentative — après quoi l'échec est dit, jamais bouclé.
+			mse: false,
+			mseTentee: false,
+			detail: ''
 		};
 		// Ordre d'essai des conteneurs : fixé après le premier rendu (le `<video>` doit exister)
 		this.candidats = ['hls', 'ts'];
@@ -72,7 +82,20 @@ class Lecteur extends React.Component {
 		this.arreterFlux();
 	}
 
+	/** Détruit l'instance `hls.js` : aucune segmentation ne doit survivre à un zapping (§4.6). */
+	arreterMse() {
+		if (this.hls) {
+			try {
+				this.hls.destroy();
+			} catch (_erreur) {
+				/* une instance déjà détruite ne doit pas bloquer la sortie du lecteur */
+			}
+			this.hls = null;
+		}
+	}
+
 	arreterFlux() {
+		this.arreterMse();
 		const video = this.video.current;
 		if (video) {
 			try {
@@ -91,14 +114,18 @@ class Lecteur extends React.Component {
 		if (!lecture || !lecture.file[index]) return;
 		const entree = lecture.file[index];
 		const demande = format || this.candidats[this.rangFormat] || 'hls';
+		// Toute tentative native repart d'une source `src` : l'instance MSE éventuelle est détruite.
+		this.arreterMse();
 		this.setState({
 			etat: 'preparation',
 			index,
 			titre: entree.titre,
 			erreur: '',
+			detail: '',
 			url: '',
 			format: demande,
 			formatEffectif: '',
+			mse: false,
 			reessaye: reessaye === true
 		});
 		service
@@ -154,13 +181,20 @@ class Lecteur extends React.Component {
 	}
 
 	/**
-	 * Échec média : trois marches seulement, dans cet ordre — (1) re-résoudre le **même** format (une
-	 * URL peut avoir expiré), (2) essayer l'**autre** conteneur, (3) abandonner en disant ce qui a été
-	 * essayé. Jamais de boucle : un format n'est demandé qu'une fois, plus une re-résolution.
+	 * Échec média : quatre marches seulement, dans cet ordre — (1) re-résoudre le **même** format
+	 * (une URL peut avoir expiré), (2) essayer l'**autre** conteneur natif, (3) la voie MSE si la
+	 * plateforme l'expose (D-45), (4) abandonner en disant ce qui a été essayé. Jamais de boucle :
+	 * un format n'est demandé qu'une fois, plus une re-résolution, et le repli est borné à une
+	 * tentative.
 	 */
 	surErreurMedia() {
-		const video = this.video.current;
-		const code = video && video.error ? video.error.code : 0;
+		if (this.state.mse) {
+			// La source est poussée par hls.js : ses propres reprises ont déjà eu lieu (fragment,
+			// niveau, manifeste). Une erreur média à ce stade est définitive — on la dit.
+			this.arreterMse();
+			this.echouerAvecMse();
+			return;
+		}
 		// Ce qui compte pour la liste des essais est le **conteneur réellement servi**, pas le format
 		// demandé : demander « ts » sur un index qui mémorise des URL `.m3u8` renvoie la même URL.
 		const effectif = this.state.formatEffectif || this.state.format;
@@ -179,10 +213,103 @@ class Lecteur extends React.Component {
 			this.setState({formatsEssayes: essayes}, () => this.preparer(this.state.index, suivant));
 			return;
 		}
-		this.setState({
-			etat: 'erreur',
-			formatsEssayes: essayes,
-			erreur: mediaformats.messageErreurMedia(code, essayes)
+		if (!this.state.mseTentee && mediaformats.mseSupport(window)) {
+			// Dernière marche : le moteur n'a peut-être aucun lecteur natif pour ce flux (ni HLS
+			// intégré, ni démultiplexeur MPEG-TS). hls.js lit la playlist et pousse les segments
+			// dans le **même** `<video>` par MSE.
+			this.setState({formatsEssayes: essayes, mseTentee: true}, () => this.preparerMse());
+			return;
+		}
+		this.echouer(essayes);
+	}
+
+	/**
+	 * Voie de secours (D-45) : URL HLS fraîche puis `hls.js` sur le `<video>` existant. Rien n'est
+	 * tenté si la plateforme n'expose pas MSE pour le H.264/AAC, ni si la résolution rend autre
+	 * chose qu'une playlist (hls.js ne lit pas un flux MPEG-TS brut) : dans ces cas l'échec est dit
+	 * avec ce qui manquait, plutôt que déguisé en tentative.
+	 */
+	preparerMse() {
+		const {lecture} = this.props;
+		const entree = lecture && lecture.file[this.state.index];
+		if (!entree) return;
+		if (!mediaformats.mseSupport(window)) {
+			this.echouerAvecMse('MSE absent : repli hls.js impossible');
+			return;
+		}
+		this.arreterMse();
+		this.setState({etat: 'preparation', url: '', erreur: '', detail: '', mse: true, format: 'hls', formatEffectif: mediaformats.LIBELLE_MSE});
+		service
+			.resolveStream({profileId: lecture.profilId, ref: entree.ref, requestedFormat: 'hls'})
+			.then((resultat) => {
+				if (!this.state.mse) return; // la lecture a été quittée pendant la résolution
+				if (!resultat.ok) {
+					this.echouerAvecMse('résolution mse : ' + service.messageDe(resultat));
+					return;
+				}
+				const url = (resultat.data && resultat.data.url) || '';
+				if (!mediaformats.estHls(url)) {
+					this.echouerAvecMse('le service n’a pas rendu de playlist HLS pour le repli');
+					return;
+				}
+				this.setState({url: url}, () => this.demarrerMse(url));
+			})
+			.catch((erreur) => this.echouerAvecMse('résolution mse : ' + erreur.message));
+	}
+
+	/** Charge `hls.js` (à la demande) et alimente le `<video>` par MSE. */
+	demarrerMse(url) {
+		const video = this.video.current;
+		if (!video) {
+			this.echouerAvecMse('aucun élément vidéo pour le repli');
+			return;
+		}
+		hlsjs
+			.chargerHls()
+			.then((Hls) => {
+				if (!this.state.mse) return; // quitté pendant le chargement du script
+				this.arreterMse();
+				const lecteurHls = new Hls({enableWorker: true, lowLatencyMode: false});
+				this.hls = lecteurHls;
+				lecteurHls.on(Hls.Events.ERROR, (_evenement, donnees) => {
+					if (!donnees || !donnees.fatal) return;
+					// Détail utile au diagnostic 0A : hls.js nomme la cause (réseau, manifeste, média).
+					this.echouerAvecMse('repli mse : ' + donnees.type + '/' + donnees.details);
+				});
+				lecteurHls.on(Hls.Events.MANIFEST_PARSED, () => {
+					if (!this.state.mse) return;
+					this.setState({etat: 'lecture'});
+					const lancement = video.play();
+					if (lancement && typeof lancement.catch === 'function') lancement.catch(() => {});
+				});
+				lecteurHls.loadSource(url);
+				lecteurHls.attachMedia(video);
+			})
+			.catch((erreur) => this.echouerAvecMse('repli mse : ' + erreur.message));
+	}
+
+	/** Échec de la voie MSE : elle rejoint la liste des essais, puis le message final est rendu. */
+	echouerAvecMse(detail) {
+		this.arreterMse();
+		const essayes = this.state.formatsEssayes.indexOf(mediaformats.LIBELLE_MSE) === -1
+			? this.state.formatsEssayes.concat([mediaformats.LIBELLE_MSE])
+			: this.state.formatsEssayes.slice();
+		this.echouer(essayes, detail);
+	}
+
+	/** Échec définitif : la liste des formats essayés et, si elle existe, la cause technique. */
+	echouer(formats, detail) {
+		const video = this.video.current;
+		const code = video && video.error ? video.error.code : 0;
+		this.setState((precedent) => {
+			const essayes = formats || precedent.formatsEssayes;
+			return {
+				etat: 'erreur',
+				mse: false,
+				formatsEssayes: essayes,
+				erreur: mediaformats.messageErreurMedia(code, essayes),
+				detail: detail || precedent.detail || ''
+			};
 		});
 	}
 
@@ -191,9 +318,13 @@ class Lecteur extends React.Component {
 	}
 
 	surClicReessayer() {
-		// Réessayer repart de l'ordre déclaré par la plateforme : l'état d'essai est remis à zéro.
+		// Réessayer repart de l'ordre déclaré par la plateforme : l'état d'essai est remis à zéro,
+		// y compris la voie de secours (une nouvelle tentative native d'abord, comme au premier essai).
 		this.rangFormat = 0;
-		this.setState({reessaye: false, formatsEssayes: []}, () => this.preparer(this.state.index));
+		this.arreterMse();
+		this.setState({reessaye: false, formatsEssayes: [], mse: false, mseTentee: false, detail: ''}, () =>
+			this.preparer(this.state.index)
+		);
 	}
 
 	surClicQuitter() {
@@ -217,10 +348,12 @@ class Lecteur extends React.Component {
 		const file = lecture.file || [];
 		return (
 			<div className={css.lecteur}>
+				{/* En voie MSE (§D-45), la source est le `blob:` que hls.js attache lui-même : aucune URL
+				    n'est posée ici, sous peine d'écraser la SourceBuffer au rendu suivant. */}
 				<video
 					ref={this.video}
 					className={css.video}
-					src={this.state.url || undefined}
+					src={this.state.mse ? undefined : this.state.url || undefined}
 					autoPlay
 					playsInline
 					onError={this.surErreurMedia}
@@ -235,6 +368,9 @@ class Lecteur extends React.Component {
 				{this.state.etat === 'erreur' ? (
 					<div className={css.centre}>
 						<BodyText className={css.texte}>{this.state.erreur}</BodyText>
+						{/* Cause technique, quand la voie de secours a parlé : elle sert au rapport 0A
+						    et évite d'avoir à deviner si l'échec est réseau, manifeste ou média. */}
+						{this.state.detail ? <BodyText className={css.petit}>{this.state.detail}</BodyText> : null}
 						<Button onClick={this.surClicReessayer}>Réessayer</Button>
 						<Button onClick={this.surClicQuitter}>Quitter</Button>
 					</div>

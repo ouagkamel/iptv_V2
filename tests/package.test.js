@@ -726,6 +726,44 @@ harness.describe('Interface Enact (V1-A) : coquille, ecrans et outillage', funct
     assert.ok(lecteur.indexOf('MediaError') !== -1 || lecteur.indexOf('video.error') !== -1, 'erreur media lisible');
     assert.ok(lecteur.indexOf('461') !== -1, 'touche Retour de la telecommande prise en compte');
     assert.ok(lecteur.indexOf('Spotlight.pause') !== -1 && lecteur.indexOf('Spotlight.resume') !== -1, 'Spotlight rendu a la sortie');
+    // D-45 : la voie de secours reste bornee et le meme element sert aux deux modes
+    assert.ok(lecteur.indexOf('mseTentee') !== -1, 'le repli MSE est borne a une tentative');
+    assert.ok(lecteur.indexOf('arreterMse') !== -1, 'l instance hls.js est detruite (zapping, sortie, reessai)');
+    assert.ok(lecteur.indexOf('this.state.mse ? undefined') !== -1, 'en MSE, la source est attachee par hls.js, pas par src');
+    assert.ok(lecteur.indexOf('loadSource') !== -1 && lecteur.indexOf('attachMedia') !== -1, 'hls.js alimente le video existant');
+  });
+
+  harness.it('repli MSE : hls.js est un fichier vendu au paquet, jamais un import du bundle', function () {
+    var vendu = path.join('src', 'app', 'vendor', 'hls.min.js');
+    var licence = path.join('src', 'app', 'vendor', 'hls.js.LICENSE.txt');
+    assert.ok(fs.existsSync(path.join(RACINE, vendu)), 'la bibliotheque est vendue dans src/app/vendor');
+    assert.ok(fs.statSync(path.join(RACINE, vendu)).size > 500 * 1024, 'taille plausible de hls.min.js');
+    assert.ok(lire(vendu).indexOf('1.7.3') !== -1, 'la version vendue est identifiable');
+    assert.ok(fs.existsSync(path.join(RACINE, licence)), 'la licence accompagne la bibliotheque (Apache 2.0)');
+    assert.ok(lire(licence).indexOf('Apache License') !== -1, 'texte de licence present');
+
+    // la specification (§422) interdit HLS.js sur le chemin par defaut : aucun import statique
+    var lecteur = sansCommentaires(lire(path.join('ui', 'src', 'views', 'Lecteur.js')));
+    assert.equal(/from\s+'hls\.js'/.test(lecteur), false, 'aucun import npm de hls.js dans le lecteur');
+    assert.ok(lecteur.indexOf('chargerHls') !== -1, 'le lecteur passe par le chargeur a la demande');
+    var chargeur = lire(path.join('ui', 'src', 'services', 'hls.js'));
+    assert.ok(chargeur.indexOf("'vendor/hls.min.js'") !== -1, 'le chargeur vise le fichier du paquet');
+
+    // et le paquet construit le contient reellement, avec le bon octet-octet
+    var version = JSON.parse(lire('appinfo.json')).version;
+    var paquet = path.join(RACINE, 'release', 'com.ouagkamel.app.iptvplayer_' + version + '_all.ipk');
+    if (fs.existsSync(paquet)) {
+      var contenu = require(path.join(RACINE, 'tools', 'ipk')).contenuDeIpk(paquet);
+      var fichiers = contenu.filter(function (f) {
+        return /(^|\/)vendor\/hls\.min\.js$/.test(f.nom);
+      });
+      assert.equal(fichiers.length, 1, 'hls.min.js present une fois dans le .ipk');
+      assert.equal(fichiers[0].donnees.length, fs.statSync(path.join(RACINE, vendu)).size, 'le fichier du paquet est celui du depot');
+      var licences = contenu.filter(function (f) {
+        return /(^|\/)vendor\/hls\.js\.LICENSE\.txt$/.test(f.nom);
+      });
+      assert.equal(licences.length, 1, 'la licence part avec le paquet');
+    }
   });
 
   harness.it('reglages : consentement HTTP clair transmis au service (§8.2)', function () {

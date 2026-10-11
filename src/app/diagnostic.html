@@ -71,6 +71,7 @@
         <div class="rang" style="margin-top:10px">
           <button id="btn-temoin">Témoin du bus LS2</button>
           <button id="btn-environnement">Actualiser l'environnement</button>
+          <button id="btn-repli">Tester le repli MSE</button>
         </div>
         <div class="aide">Le témoin interroge un service <em>du système</em> (informations de la TV) :
         s'il répond, le pont de l'application fonctionne et le problème vient du service de
@@ -84,8 +85,8 @@
           <option value="">— saisie manuelle —</option>
         </select>
         <div class="aide" id="aide-source">Aucune source préconfigurée : renseigner les champs
-        ci-dessous. Une source peut être préparée dans <code>secrets.local/profils.js</code> (hors
-        dépôt) puis intégrée à l'empaquetage — les champs se remplissent alors tout seuls.</div>
+        ci-dessous. Une source peut être préparée <b>hors dépôt</b> (fichier local ignoré par git)
+        puis intégrée à l'empaquetage — les champs se remplissent alors tout seuls.</div>
         <label for="profil" id="etiquette-profil">Identifiant de profil</label>
         <input id="profil" value="p1">
         <label for="url" id="etiquette-url">Adresse du portail</label>

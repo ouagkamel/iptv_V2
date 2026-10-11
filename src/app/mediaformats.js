@@ -19,7 +19,11 @@
  *  - **MPEG-TS** dès qu'il est le seul déclaré, et de toute façon **essayé ensuite** : `canPlayType`
  *    est un avis, pas une garantie ;
  *  - un format n'est jamais demandé deux fois de suite sans re-résolution, et l'échec des deux est
- *    **dit** avec la liste exacte des formats essayés (§0B : consigner le cas non supporté).
+ *    **dit** avec la liste exacte des formats essayés (§0B : consigner le cas non supporté) ;
+ *  - **voie MSE en dernier recours** (`mseSupport`) : certains moteurs n'ont ni lecteur HLS intégré
+ *    ni démultiplexeur MPEG-TS — c'est le cas d'un Chromium sans HLS natif, donc du simulateur — et
+ *    aucun des deux conteneurs natifs n'y peut réussir. Le repli n'est proposé que là, après les
+ *    deux échecs, jamais sur le chemin par défaut (§422), et son nom figure dans le message d'échec.
  *
  * Le module est utilisable tel quel dans la page (`window.iptvMedia`), dans l'interface et sous Node
  * pour les tests (`module.exports`), sans dépendance.
@@ -34,6 +38,13 @@
 
   /** Variantes de `canPlayType` pour HLS : les deux libellés circulent. */
   var MIME_HLS_ALT = 'application/x-mpegURL';
+
+  /**
+   * Ce qu'une voie **MSE** saurait lire : le H.264/AAC du direct Xtream, en MP4 fragmenté. C'est la
+   * seule chose que le repli `hls.js` demande à la plateforme — un flux HEVC ou AC-3 ne l'obtiendra
+   * pas ici, et c'est voulu : on ne promet que ce qui est mesuré.
+   */
+  var MIME_MSE = 'video/mp4; codecs="avc1.42E01E,mp4a.40.2"';
 
   /**
    * Ce que la plateforme **déclare** savoir lire : `''` (non), `'maybe'`, `'probably'`.
@@ -78,6 +89,38 @@
   }
 
   /**
+   * La plateforme expose-t-elle une voie **MSE** pour le H.264/AAC (repli `hls.js`) ?
+   *
+   * `window.MediaSource` suffit à l'annoncer : un moteur qui l'expose sait lire un flux segmenté
+   * poussé par `SourceBuffer`. `isTypeSupported` est interrogé quand il existe — une plateforme qui
+   * répond non pour le H.264/AAC ne doit pas recevoir un repli voué à l'échec (le message final
+   * nomme alors seulement les formats natifs, et dit pourquoi MSE a été écarté).
+   */
+  function mseSupport(mediateur) {
+    var source = mediateur && mediateur.MediaSource;
+    if (!source) return false;
+    if (typeof source.isTypeSupported !== 'function') return true;
+    try {
+      return !!source.isTypeSupported(MIME_MSE);
+    } catch (_erreur) {
+      return false;
+    }
+  }
+
+  /**
+   * L'URL est-elle une **playlist HLS** ? Le repli `hls.js` lit une playlist, jamais un flux
+   * MPEG-TS brut : le dire ici évite de lancer une tentative perdue d'avance. L'extension est
+   * cherchée avant les paramètres et le fragment (`?…`, `#…`), en minuscules.
+   */
+  function estHls(url) {
+    var texte = String(url || '').split('#')[0].split('?')[0].toLowerCase();
+    return texte.slice(-5) === '.m3u8';
+  }
+
+  /** Nom porté au message d'échec pour la voie MSE (le repli se nomme comme il se lit). */
+  var LIBELLE_MSE = 'mse';
+
+  /**
    * Nature d'une `MediaError` : `@param code` est `HTMLMediaElement.error.code`
    * (1 ABORTED, 2 NETWORK, 3 DECODE, 4 SRC_NOT_SUPPORTED).
    */
@@ -86,6 +129,9 @@
     if (code === 3) return 'flux illisible (decodage)';
     if (code === 2) return 'flux interrompu ou expire';
     if (code === 1) return 'lecture interrompue';
+    // Aucun code du tout : ce n'est pas une MediaError du `<video>` mais la fin de toutes les voies
+    // (repli compris). Le dire ainsi évite un « MediaError 0 » qui ne veut rien dire pour personne.
+    if (!code) return 'aucune voie de lecture n’a abouti';
     return 'lecture impossible';
   }
 
@@ -95,31 +141,39 @@
    */
   function messageErreurMedia(code, formatsEssayes) {
     var liste = (formatsEssayes && formatsEssayes.length ? formatsEssayes : []).join(', ');
-    return (
-      'lecture impossible (MediaError ' + code + ') — ' + nature(code) +
-      (liste ? ' ; formats essayés : ' + liste : '')
-    );
+    var tete = code ? 'lecture impossible (MediaError ' + code + ') — ' + nature(code) : 'lecture impossible — ' + nature(0);
+    return tete + (liste ? ' ; formats essayés : ' + liste : '');
   }
 
-  /** Résumé des formats déclarés, pour la page de diagnostic (preuve à consigner en 0B). */
-  function resume(canPlayType) {
+  /**
+   * Résumé des formats déclarés, pour la page de diagnostic (preuve à consigner en 0B).
+   *
+   * `@param mediateur` (`window` en pratique) n'est lu que pour la voie MSE : son absence ne change
+   * rien d'autre, ce qui permet d'appeler `resume(canPlayType)` comme avant.
+   */
+  function resume(canPlayType, mediateur) {
     var declare = support(canPlayType);
     function libelle(valeur) {
       if (!valeur) return 'non';
       return valeur;
     }
-    return (
+    var texte =
       'HLS (' + MIME.hls + ') : ' + libelle(declare.hls) +
-      ' ; MPEG-TS (' + MIME.ts + ') : ' + libelle(declare.ts)
-    );
+      ' ; MPEG-TS (' + MIME.ts + ') : ' + libelle(declare.ts) +
+      ' ; MSE (repli hls.js) : ' + (mseSupport(mediateur) ? 'oui' : 'non');
+    return texte;
   }
 
   var api = {
     MIME: MIME,
+    MIME_MSE: MIME_MSE,
+    LIBELLE_MSE: LIBELLE_MSE,
     support: support,
     candidats: candidats,
     autre: autre,
     mimeDe: mimeDe,
+    mseSupport: mseSupport,
+    estHls: estHls,
     nature: nature,
     messageErreurMedia: messageErreurMedia,
     resume: resume
