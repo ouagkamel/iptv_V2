@@ -1,5 +1,44 @@
 # Journal d'exécution
 
+## 2026-10-11 — import refusé sur le téléviseur : DB8 exige le `_rev` des objets existants (0.1.17)
+
+**Ce qui a été observé** (TV réelle, paquet 0.1.16, premier essai de la 0A) :
+
+```
+importplaylist (progression) : internal/unexpected - appel LS2 refuse (-3960) :
+db : _rev must be specified for existing objects (Luna://com.palm.db/put) [reessayable]
+```
+
+L'import démarrait, puis s'arrêtait à la **première mise à jour** de son état.
+
+**La cause** : le service relit une ligne DB8 par son index, la modifie et la réécrit en repassant
+son `_id` — **sans `_rev`**. DB8 refuse précisément cela : `-3960 db: _rev must be specified for
+existing objects` ; et avec une révision périmée, `-3961 db: revision mismatch - expected <n>, got
+<m>`, avec obligation de **relire (`get`) puis réessayer**. Sept chemins étaient concernés : ligne de
+progression d'import (le déclencheur), profil, clé maître, consentements, favoris, reprises, et la
+sonde.
+
+**Pourquoi les tests ne l'avaient pas vu** : le faux bus écrasait silencieusement une ligne
+existante, avec ou sans `_rev`. Il était plus permissif que DB8 : le défaut ne pouvait apparaître que
+sur l'appareil. C'est la leçon de cet incident — un faux bus doit reproduire la **règle**, pas
+seulement les codes d'erreur.
+
+| Réf. | Constat | Décision |
+|---|---|---|
+| **D-46a** | `put`/`merge` sans `_rev` sur un objet existant | Lecture des révisions par **`get`** juste avant l'écriture, `_rev` joint, dans **un seul** chemin d'écriture pour tous les dépôts |
+| **D-46b** | Conflit de révision | Rejoué **une fois** après relecture (protocole DB8), puis échec explicite — jamais de boucle |
+| **D-46c** | `_id` inconnu de la base (ligne supprimée entre-temps) | `_id` retiré : l'objet est créé, DB8 attribue l'identifiant |
+| **D-46d** | Le faux bus acceptait ce que DB8 refuse | Le bus applique désormais la règle : `_rev` attribué à chaque écriture, `-3960` sans `_rev`, `-3961` avec un `_rev` périmé, `get` rendant `_rev` |
+| **D-46e** | Deux formes d'échec (réponse `returnValue: false` ou erreur rejetée par le pont LS2) | Le conflit est reconnu dans les deux formes — sur la TV, c'est le pont qui rejette |
+
+**Tests ajoutés** : 7 cas dans `tests/db8.test.js` (refus du bus sans `_rev` et avec un `_rev` périmé,
+relecture prouvée par le journal des appels, ligne de job réécrite à chaque phase — le chemin exact du
+défaut —, conflit réel rejoué une fois, `_id` disparu recréé, parcours complet sur le bus strict).
+
+**Vérification de non-régression** : en neutralisant la jointure du `_rev` dans le code compilé, **5
+cas échouent** (dont l'écriture de la ligne de job et l'import complet) — les tests protègent bien le
+défaut. Avec le correctif : **260 tests, 0 échec**, y compris sous **Node 8.12**.
+
 ## 2026-10-11 — deux constructions du même code ne donnent pas le même `main.js` (iLib y inscrit un identifiant de cache)
 
 **Ce qui a été observé** : après la publication de 0.1.16, une reconstruction de la livraison publique

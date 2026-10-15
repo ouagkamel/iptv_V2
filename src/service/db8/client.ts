@@ -9,6 +9,10 @@
  * Règles portées ici :
  *  - les `kinds` sont préfixés par l'ID de l'application et **versionnés** ;
  *  - toute réponse est validée à l'exécution : on ne suppose jamais qu'un appel LS2 a réussi ;
+ *  - **une écriture sur un objet existant porte son `_rev`** : DB8 refuse un `put` avec un `_id`
+ *    existant mais sans `_rev` (`-3960 db: _rev must be specified for existing objects`) et refuse un
+ *    `_rev` périmé (`-3961 db: revision mismatch`). Le client lit les révisions par `get` juste avant
+ *    d'écrire, et rejoue **une fois** en cas de conflit (D-46) ;
  *  - aucun identifiant, aucune URL de flux et aucune clé ne peut être journalisé par ce module
  *    (les valeurs sensibles ne sortent qu'en retour d'appel).
  */
@@ -57,6 +61,23 @@ export function serviceIntrouvable(erreur: unknown): boolean {
  */
 export function permissionRefusee(message: string): boolean {
   return /permission\s+denied|-3963/.test(message);
+}
+
+/**
+ * Vrai si l'echec d'**ecriture** est un conflit de revision DB8 : `-3960 db: _rev must be specified
+ * for existing objects` (objet deja present, `_rev` absent) ou `-3961 db: revision mismatch`
+ * (`_rev` perime, quelqu'un a ecrit entre la lecture et l'ecriture).
+ *
+ * DB8 exige `_rev` **des qu'un `_id` existe** : « _rev must be specified for existing objects ».
+ * Le protocole documente est alors toujours le meme : relire l'objet (`get`) pour obtenir son
+ * `_rev` courant, puis reessayer l'ecriture (D-46).
+ *
+ * Le motif porte sur le **message** autant que sur le code : le pont LS2 (`createLs2Caller`) rejette
+ * un `returnValue: false` sous forme d'erreur texte (« appel LS2 refuse (-3960) : … ») tandis qu'un
+ * appel direct rend l'objet de reponse. Les deux formes doivent etre reconnues.
+ */
+export function conflitDeRevision(erreurOuReponse: unknown): boolean {
+  return /-3960|-3961|revision\s+mismatch|_rev\s+must\s+be\s+specified/i.test(texteDe(erreurOuReponse));
 }
 
 /**
@@ -270,16 +291,100 @@ export class Db8Client {
   async put(name: KindName, objects: Array<Record<string, unknown>>): Promise<string[]> {
     if (objects.length === 0) return [];
     await this.ensureKind(name);
-    // Le schéma du service (`put`) n'accepte que `objects` (et `shardId`) : toute autre clé est
-    // refusée (`additionalProperties: false`). `private` appartient à `putKind`, pas à `put`.
-    const reply = await this.appel('put', {
-      objects: objects.map((object) => Object.assign({ _kind: kindOf(name) }, object))
-    });
-    if (reply.returnValue !== true) {
-      throw new AppError('internal/unexpected', 'ecriture DB8 refusee' + detailErreur(reply));
-    }
-    const results = reply.results as Array<{ id?: string }> | undefined;
+    const resultat = await this.ecrireAvecRevisions('put', name, objects);
+    const results = resultat.results as Array<{ id?: string }> | undefined;
     return (results || []).map((result) => result.id || '');
+  }
+
+  /**
+   * Ecriture d'objets **dont certains portent deja un `_id`** (mise a jour).
+   *
+   * DB8 refuse un `put` sur un objet existant sans `_rev` (`-3960`) et refuse un `_rev` perime
+   * (`-3961`) : c'est exactement ce qui faisait echouer l'import sur le televiseur — la progression
+   * du job reecrivait sa ligne DB8 avec le `_id` relu, sans revision. Le protocole documente est
+   * applique ici, **une seule fois** : relire les revisions par `get`, les joindre, reessayer. Un
+   * second echec remonte tel quel — il n'y a pas de troisieme essai, et une boucle masquerait une
+   * base reellement indisponible (D-46).
+   */
+  private async ecrireAvecRevisions(
+    action: 'put' | 'merge',
+    name: KindName,
+    objects: Array<Record<string, unknown>>
+  ): Promise<Record<string, unknown>> {
+    let prepared = await this.avecRevisions(objects);
+    let premier: string | null = null;
+    for (let essai = 0; essai < 2; essai += 1) {
+      try {
+        const reply = await this.appel(action, {
+          objects: prepared.map((object) => Object.assign({ _kind: kindOf(name) }, object))
+        });
+        if (reply.returnValue === true) return reply;
+        const detail = detailErreur(reply);
+        if (!conflitDeRevision(detail)) {
+          throw new AppError(
+            'internal/unexpected',
+            (action === 'put' ? 'ecriture' : 'fusion') + ' DB8 refusee' + detail
+          );
+        }
+        premier = premier || detail;
+      } catch (erreur) {
+        // Le pont LS2 rejette au lieu de rendre la reponse : un conflit doit etre reconnu ici aussi.
+        if (!conflitDeRevision(erreur)) throw erreur;
+        premier = premier || texteDe(erreur);
+      }
+      if (essai === 1) break;
+      // Protocole DB8 : relire les revisions courantes avant de reessayer.
+      prepared = await this.avecRevisions(objects);
+    }
+    throw new AppError(
+      'internal/unexpected',
+      'ecriture DB8 refusee : conflit de revision persistant apres relecture' + (premier ? ' : ' + premier : ''),
+      'reessayer'
+    );
+  }
+
+  /**
+   * Joint aux objets leur `_rev` courant, lu par `get` — la methode DB8 prevue pour lire par
+   * identifiant (et la plus directe). Un `_id` **inconnu de la base** est retire : l'objet sera cree
+   * (DB8 attribue alors l'identifiant), ce qui evite d'ecrire a l'aveugle sur une ligne disparue.
+   */
+  private async avecRevisions(
+    objects: Array<Record<string, unknown>>
+  ): Promise<Array<Record<string, unknown>>> {
+    const ids = objects
+      .map((object) => (object._id === undefined ? '' : String(object._id)))
+      .filter((id) => id !== '');
+    const revisions = ids.length > 0 ? await this.revisions(ids) : {};
+    return objects.map((object) => {
+      const copie: Record<string, unknown> = Object.assign({}, object);
+      if (copie._id === undefined) return copie;
+      const rev = revisions[String(copie._id)];
+      if (rev === undefined) {
+        delete copie._id;
+        return copie;
+      }
+      copie._rev = rev;
+      return copie;
+    });
+  }
+
+  /**
+   * Revisions courantes d'une liste d'identifiants (`get`). Les identifiants absents de la reponse
+   * sont simplement absents de la table rendue : DB8 ne signale pas un objet manquant, il ne le rend
+   * pas. Aucune requete indexee n'est necessaire (`get` lit par identifiant).
+   */
+  private async revisions(ids: string[]): Promise<Record<string, number>> {
+    const reply = await this.appel('get', { ids: ids });
+    if (reply.returnValue !== true) {
+      throw new AppError('internal/unexpected', 'lecture des revisions DB8 refusee' + detailErreur(reply));
+    }
+    const table: Record<string, number> = {};
+    ((reply.results || []) as Array<Record<string, unknown>>).forEach((ligne) => {
+      const id = ligne._id === undefined ? '' : String(ligne._id);
+      const rev = typeof ligne._rev === 'number' ? ligne._rev : Number(ligne._rev);
+      if (id !== '' && Number.isFinite(rev)) table[id] = rev;
+    });
+    return table;
   }
 
   async find<T extends Record<string, unknown>>(
@@ -346,12 +451,7 @@ export class Db8Client {
   async merge(name: KindName, objects: Array<Record<string, unknown>>): Promise<number> {
     if (objects.length === 0) return 0;
     await this.ensureKind(name);
-    const reply = await this.appel('merge', {
-      objects: objects.map((object) => Object.assign({ _kind: kindOf(name) }, object))
-    });
-    if (reply.returnValue !== true) {
-      throw new AppError('internal/unexpected', 'fusion DB8 refusee' + detailErreur(reply));
-    }
+    const reply = await this.ecrireAvecRevisions('merge', name, objects);
     return (reply.count as number) || objects.length;
   }
 
@@ -535,19 +635,27 @@ export class Db8Client {
 /**
  * Faux bus en mémoire reproduisant la sémantique DB8 **telle que le service l'expose** : schémas
  * stricts de chaque méthode (`additionalProperties: false`), `putKind` refusé sur un kind existant,
- * requête indexée obligatoire (`-3965`), kind non enregistré refusé à l'écriture (`-3970`). Il sert
- * aux tests et au simulateur : un client qui parle un dialecte à lui doit échouer **ici**, pas sur
- * la TV.
+ * requête indexée obligatoire (`-3965`), kind non enregistré refusé à l'écriture (`-3970`), et
+ * **révisions d'objet** : `_rev` attribué à chaque écriture, `put`/`merge` refusés sur un objet
+ * existant sans `_rev` (`-3960`) ou avec un `_rev` périmé (`-3961`). Il sert aux tests et au
+ * simulateur : un client qui parle un dialecte à lui doit échouer **ici**, pas sur la TV.
+ *
+ * Les révisions sont venues tard, et c'est un vrai défaut qui l'a montré (D-46) : le bus acceptait
+ * un `put` sur un `_id` existant sans `_rev` — comme le faisait le service en réécrivant la ligne de
+ * progression d'un import. Les tests étaient verts, le téléviseur refusait
+ * (`db: _rev must be specified for existing objects`). La règle est maintenant dans le bus.
  *
  * Références des schémas : `src/db/MojDbServiceSchemas.cpp` du dépôt `webosose/db8` (putKind, put,
- * find, del, merge). Codes : `-3965` no index for query, `-3970` kind not registered, `-4029`
- * schema validation.
+ * get, find, del, merge). Codes : `-3960` `_rev` manquant, `-3961` revision mismatch, `-3965` no index
+ * for query, `-3970` kind not registered, `-4029` schema validation.
  */
 export class FakeDb8Bus {
   private readonly stores: Record<string, Array<Record<string, unknown>>> = {};
   /** Kinds enregistres et leurs index : c'est ce qui decide quelles requetes sont valides. */
   readonly kinds: Record<string, string[]> = {};
   private counter = 0;
+  /** Revision de la base : incremente a **chaque** ecriture reussie (comme DB8). */
+  private revision = 0;
 
   /** Propriétés interrogeables d'un kind enregistré : `_id`, `_kind` et ses index. */
   private champs(kind: string): string[] {
@@ -564,6 +672,26 @@ export class FakeDb8Bus {
 
   private schema(reason: string): Record<string, unknown> {
     return { returnValue: false, errorCode: -4029, errorText: 'schema validation failed: ' + reason };
+  }
+
+  /**
+   * Verifie la revision d'un objet **existant**. Rend `null` si l'ecriture peut passer, sinon la
+   * reponse d'echec de DB8, avec ses deux codes et ses deux textes exacts :
+   * `-3960 db: _rev must be specified for existing objects` (`_rev` absent) et
+   * `-3961 db: revision mismatch - expected <courant>, got <fourni>` (`_rev` perime).
+   */
+  private verifierRevision(existant: Record<string, unknown>, objet: Record<string, unknown>): Record<string, unknown> | null {
+    if (objet._rev === undefined) {
+      return { returnValue: false, errorCode: -3960, errorText: 'db: _rev must be specified for existing objects' };
+    }
+    if (Number(objet._rev) !== Number(existant._rev)) {
+      return {
+        returnValue: false,
+        errorCode: -3961,
+        errorText: 'db: revision mismatch - expected ' + String(existant._rev) + ', got ' + String(objet._rev)
+      };
+    }
+    return null;
   }
 
   readonly call: Ls2Caller = async (uri: string, params: Ls2CallParams) => {
@@ -611,32 +739,62 @@ export class FakeDb8Bus {
         if (kindInconnu) {
           return { returnValue: false, errorCode: -3970, errorText: 'db: kind not registered' };
         }
-        const results: Array<{ id: string }> = [];
-        objects.forEach((object) => {
+        const results: Array<{ id: string; rev: number }> = [];
+        for (const object of objects) {
           const kind = String(object._kind);
           const list = this.stores[kind] || (this.stores[kind] = []);
           const id = (object._id as string) || 'id-' + ++this.counter;
           const index = list.findIndex((existing) => existing._id === id);
-          const record = Object.assign({}, object, { _id: id });
+          if (index !== -1) {
+            // Objet **existant** : DB8 exige `_rev` (et le bon). C'est la regle que le service a
+            // enfreinte pendant un import (D-46) sans qu'aucun test ne s'en apercoive.
+            const verdict = this.verifierRevision(list[index], object);
+            if (verdict) return verdict;
+          }
+          const record = Object.assign({}, object, { _id: id, _rev: ++this.revision });
           if (index === -1) list.push(record);
           else list[index] = record;
-          results.push({ id });
-        });
+          results.push({ id: id, rev: record._rev as number });
+        }
         return { returnValue: true, results };
       }
       case 'merge': {
         const inconnu = this.inconnues(params, ['query', 'objects', 'ignoreMissing', 'props']);
         if (inconnu) return this.schema('merge: cle inattendue ' + inconnu);
         const objects = (params.objects || []) as Array<Record<string, unknown>>;
-        objects.forEach((object) => {
+        for (const object of objects) {
           const kind = String(object._kind);
           const list = this.stores[kind] || (this.stores[kind] = []);
           const id = object._id as string;
           const index = list.findIndex((existing) => existing._id === id);
-          if (index === -1) list.push(Object.assign({}, object));
-          else list[index] = Object.assign({}, list[index], object);
-        });
+          if (index === -1) {
+            // `merge` sur un objet absent : cree, sauf `ignoreMissing` (schema de DB8).
+            if (params.ignoreMissing === true) continue;
+            list.push(Object.assign({}, object, { _rev: ++this.revision }));
+            continue;
+          }
+          const verdict = this.verifierRevision(list[index], object);
+          if (verdict) return verdict;
+          const fusionne = Object.assign({}, list[index], object, { _rev: ++this.revision });
+          list[index] = fusionne;
+        }
         return { returnValue: true, count: objects.length };
+      }
+      case 'get': {
+        // Schema de DB8 : `ids` **seul** quelque chose (`additionalProperties: false`) ; un
+        // identifiant inconnu n'est pas une erreur, il est simplement absent des resultats.
+        const inconnu = this.inconnues(params, ['ids']);
+        if (inconnu) return this.schema('get: cle inattendue ' + inconnu);
+        const ids = params.ids;
+        if (!Array.isArray(ids)) return this.schema('get: ids requis');
+        const toutes = Object.keys(this.stores).reduce<Array<Record<string, unknown>>>((acc, kind) => acc.concat(this.stores[kind]), []);
+        const voulues = ids.map((id) => String(id));
+        return {
+          returnValue: true,
+          results: toutes
+            .filter((record) => voulues.indexOf(String(record._id)) !== -1)
+            .map((record) => Object.assign({}, record))
+        };
       }
       case 'find': {
         const inconnu = this.inconnues(params, ['query', 'count', 'watch', 'subscribe']);

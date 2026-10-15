@@ -807,3 +807,311 @@ harness.describe('Proprietaire de kind : DB8 n accepte que le domaine appelant (
       );
   });
 });
+
+/**
+ * **Révisions d'objet DB8 (D-46)** — le défaut vu sur le téléviseur.
+ *
+ * Le service réécrivait les lignes qu'il avait lui-même relues (progression d'un import, profil,
+ * clé maître) en repassant leur `_id` **sans** `_rev`. DB8 refuse :
+ * `-3960 db: _rev must be specified for existing objects`. Le faux bus, lui, écrasait la ligne
+ * sans broncher : les tests étaient verts et la TV refusait. Ces cas protègent les deux côtés :
+ *
+ *  - le **bus** applique la règle de DB8 (`-3960`, `-3961`, `get` rendant `_rev`) — un client qui
+ *    oublierait la révision échoue donc dans les tests, pas sur l'appareil ;
+ *  - le **client** lit les révisions par `get` avant d'écrire, joint le `_rev` courant, retire un
+ *    `_id` inconnu de la base, et rejoue **une fois** un conflit (`-3961`), comme le documente DB8.
+ */
+harness.describe('DB8 : révisions d objet (put/merge exigent _rev, get les rend)', function () {
+  /** Petit montage : un bus, un client, et le journal des appels pour vérifier le protocole. */
+  function makeBus() {
+    var bus = new db8Lib.FakeDb8Bus();
+    var appels = [];
+    var db = new db8Lib.Db8Client({
+      call: function (uri, params) {
+        appels.push({ uri: uri, action: uri.split('/').pop(), params: params });
+        return bus.call(uri, params);
+      },
+      appId: db8Lib.APP_ID
+    });
+    return { bus: bus, db: db, appels: appels, actions: function () { return appels.map(function (a) { return a.action; }); } };
+  }
+
+  harness.it('le faux bus refuse un put sans _rev sur un objet existant (-3960)', function () {
+    var bus = new db8Lib.FakeDb8Bus();
+    return bus
+      .call('luna://com.palm.db/putKind', { id: db8Lib.APP_ID + ':db:profiles:2', owner: db8Lib.APP_ID, indexes: [] })
+      .then(function () {
+        return bus.call('luna://com.palm.db/put', {
+          objects: [{ _kind: db8Lib.APP_ID + ':db:profiles:2', id: 'p1' }]
+        });
+      })
+      .then(function (premier) {
+        assert.equal(premier.returnValue, true, 'creation acceptee');
+        var id = premier.results[0].id;
+        assert.ok(typeof premier.results[0].rev === 'number', 'la creation rend une revision');
+        // seconde ecriture du MEME objet, avec son _id mais sans _rev : c'est le defaut de la TV
+        return bus
+          .call('luna://com.palm.db/put', {
+            objects: [{ _kind: db8Lib.APP_ID + ':db:profiles:2', _id: id, id: 'p1', name: 'autre' }]
+          })
+          .then(function (second) {
+            assert.equal(second.returnValue, false, 'refus attendu');
+            assert.equal(second.errorCode, -3960, 'code DB8 attendu');
+            assert.ok(/_rev must be specified/.test(second.errorText), 'texte DB8 attendu : ' + second.errorText);
+          });
+      });
+  });
+
+  harness.it('le faux bus refuse un _rev perime (-3961) et accepte le bon', function () {
+    var bus = new db8Lib.FakeDb8Bus();
+    var kind = db8Lib.APP_ID + ':db:masterKeys:2';
+    return bus
+      .call('luna://com.palm.db/putKind', { id: kind, owner: db8Lib.APP_ID, indexes: [] })
+      .then(function () {
+        return bus.call('luna://com.palm.db/put', { objects: [{ _kind: kind, profileId: 'p1', key: 'A' }] });
+      })
+      .then(function (creation) {
+        var id = creation.results[0].id;
+        var rev = creation.results[0].rev;
+        return bus
+          .call('luna://com.palm.db/put', { objects: [{ _kind: kind, _id: id, _rev: rev - 1, key: 'B' }] })
+          .then(function (perime) {
+            assert.equal(perime.errorCode, -3961, 'conflit signale');
+            assert.ok(/revision mismatch/.test(perime.errorText), 'texte DB8 : ' + perime.errorText);
+            return bus.call('luna://com.palm.db/put', { objects: [{ _kind: kind, _id: id, _rev: rev, key: 'C' }] });
+          })
+          .then(function (bon) {
+            assert.equal(bon.returnValue, true, 'ecriture acceptee avec le bon _rev');
+            assert.ok(bon.results[0].rev > rev, 'revision incrementee : ' + rev + ' -> ' + bon.results[0].rev);
+            return bus.call('luna://com.palm.db/get', { ids: [id] });
+          })
+          .then(function (lecture) {
+            assert.equal(lecture.results[0].key, 'C', 'la valeur ecrite est celle relue');
+            assert.ok(typeof lecture.results[0]._rev === 'number', 'get rend _rev');
+          });
+      });
+  });
+
+  harness.it('le client relit le _rev par get avant de reecrire un profil existant', function () {
+    var banc = makeBus();
+    var identifiant = '';
+    return banc.db
+      .put('profiles', [{ id: 'p1', name: 'premier' }])
+      .then(function () {
+        // une **creation** n'a pas besoin de revision : aucun `get` ne doit partir
+        assert.equal(banc.actions().indexOf('get'), -1, 'aucun get pour une creation : ' + banc.actions().join(', '));
+        return banc.db.find('profiles', { id: 'p1' }, { limit: 1 });
+      })
+      .then(function (lignes) {
+        identifiant = lignes[0]._id;
+        return banc.db.put('profiles', [Object.assign({}, lignes[0], { name: 'second' })]);
+      })
+      .then(function () {
+        // le put de mise a jour a ete precede d'une lecture de revision
+        var actions = banc.actions();
+        assert.ok(actions.indexOf('get') !== -1, 'revision relue : ' + actions.join(', '));
+        assert.ok(actions.indexOf('get') < actions.lastIndexOf('put'), 'get avant put');
+        return banc.db.find('profiles', { id: 'p1' });
+      })
+      .then(function (lignes) {
+        assert.equal(lignes.length, 1, 'une seule ligne : ' + lignes.length);
+        assert.equal(lignes[0].name, 'second', 'la ligne a bien ete mise a jour');
+        assert.equal(lignes[0]._id, identifiant, 'le meme objet, pas un doublon');
+      });
+  });
+
+  harness.it('l ecriture rejouee d une ligne de job (progression d import) aboutit', function () {
+    // C'est la ligne exacte du defaut : le job est ecrit a chaque changement de phase, avec l _id
+    // relu. Sans revision, DB8 refusait (-3960) et l import s arretait des la premiere mise a jour.
+    var banc = makeBus();
+    var phases = ['downloading', 'parsing', 'writing', 'validating', 'swapping', 'done'];
+    var ecritures = phases.reduce(function (promesse, phase, rang) {
+      var job = { jobId: 'j1', profileId: 'p1', phase: phase };
+      return promesse.then(function () {
+        return banc.db
+          .find('importJobs', { jobId: 'j1' }, { limit: 1 })
+          .then(function (lignes) {
+            var ligne = { jobId: 'j1', profileId: 'p1', job: job };
+            if (lignes.length > 0 && lignes[0]._id) ligne._id = lignes[0]._id;
+            return banc.db.put('importJobs', [ligne]).then(function () {
+              return rang;
+            });
+          });
+      });
+    }, Promise.resolve(0));
+
+    return ecritures
+      .then(function () {
+        return banc.db.find('importJobs', { jobId: 'j1' });
+      })
+      .then(function (lignes) {
+        assert.equal(lignes.length, 1, 'une seule ligne de job malgre ' + phases.length + ' ecritures');
+        assert.equal(lignes[0].job.phase, 'done', 'derniere phase ecrite : ' + lignes[0].job.phase);
+        var lectures = banc.actions().filter(function (action) { return action === 'get'; });
+        assert.equal(lectures.length, phases.length - 1, 'une relecture de revision par mise a jour');
+      });
+  });
+
+  harness.it('un conflit reel (quelqu un a ecrit entre-temps) est rejoue une fois', function () {
+    // La course est simulee au bon endroit : **entre** la lecture de revision du client et son
+    // ecriture. Le put part alors avec un `_rev` perime (-3961) ; le client doit relire et rejouer.
+    var bus = new db8Lib.FakeDb8Bus();
+    var kind = db8Lib.APP_ID + ':db:consents:2';
+    var courses = 0;
+    var puts = 0;
+    var actions = [];
+    var db = new db8Lib.Db8Client({
+      call: async function (uri, params) {
+        var action = uri.split('/').pop();
+        actions.push(action);
+        var objet = (params.objects || [])[0];
+        if (action === 'put' && objet && objet._id && courses === 0) {
+          courses += 1;
+          // un autre ecrivain passe : il ecrit avec la revision que le client vient de lire
+          await bus.call('luna://com.palm.db/put', {
+            objects: [
+              {
+                _kind: kind,
+                _id: objet._id,
+                _rev: objet._rev,
+                profileId: 'p1',
+                kind: 'insecureHttp',
+                insecureHost: 'portail.test',
+                acceptedAt: 999
+              }
+            ]
+          });
+        }
+        if (action === 'put') puts += 1;
+        return bus.call(uri, params);
+      },
+      appId: db8Lib.APP_ID
+    });
+
+    return db
+      .put('consents', [
+        { profileId: 'p1', kind: 'insecureHttp', insecureHost: 'portail.test', acceptedAt: 1 }
+      ])
+      .then(function () {
+        return db.find('consents', { profileId: 'p1' });
+      })
+      .then(function (lignes) {
+        return db.put('consents', [Object.assign({}, lignes[0], { acceptedAt: 2 })]);
+      })
+      .then(function () {
+        return db.find('consents', { profileId: 'p1' });
+      })
+      .then(function (lignes) {
+        assert.equal(lignes.length, 1, 'toujours une seule ligne : ' + lignes.length);
+        assert.equal(lignes[0].acceptedAt, 2, 'notre ecriture a bien ete appliquee apres reprise');
+        assert.equal(courses, 1, 'une seule course simulee');
+        // creation + mise a jour refusee + reprise : la concurrence, elle, passe par le bus direct
+        assert.equal(puts, 3, 'trois put du client (creation, tentative refusee, reprise) : ' + puts);
+        // deux lectures de revision apres la creation : une par tentative de mise a jour
+        assert.equal(
+          actions.filter(function (action) { return action === 'get'; }).length,
+          2,
+          'une relecture avant chaque tentative : ' + actions.join(', ')
+        );
+      });
+  });
+
+  harness.it('un _id disparu de la base est recree au lieu d echouer', function () {
+    var banc = makeBus();
+    return banc.db
+      .put('playbacks', [{ key: 'k1', profileId: 'p1', record: { at: 1 } }])
+      .then(function () {
+        return banc.db.find('playbacks', { key: 'k1' }, { limit: 1 }).then(function (lignes) {
+          // l utilisateur a supprime la ligne entre la lecture et l ecriture
+          return banc.db.del('playbacks', [String(lignes[0]._id)]).then(function () {
+            return lignes[0];
+          });
+        });
+      })
+      .then(function (ancienne) {
+        var ligne = Object.assign({}, ancienne, { record: { at: 2 } });
+        return banc.db.put('playbacks', [ligne]).then(function () {
+          return banc.db.find('playbacks', { key: 'k1' });
+        });
+      })
+      .then(function (lignes) {
+        assert.equal(lignes.length, 1, 'la ligne est recreee');
+        assert.equal(lignes[0].record.at, 2, 'valeur ecrite');
+      });
+  });
+
+  harness.it('le parcours complet (profil reecrit, import, page, resolution) reste vert', function () {
+    var stack = makeStack();
+    var profil = {
+      id: 'p1',
+      name: 'Maison',
+      kind: 'xtream',
+      providerType: 'xtream',
+      preferredLiveFormat: 'auto',
+      status: 'ok',
+      baseUrl: PORTAL_URL,
+      persistSecrets: false
+    };
+    var final = null;
+    return stack.service.profiles
+      .save(Object.assign({}, profil))
+      .then(function () {
+        // seconde ecriture du meme profil : c'est le chemin « _id relu + _rev » du client
+        return stack.service.profiles.save(Object.assign({}, profil, { name: 'Maison (2)' }));
+      })
+      .then(function () {
+        return stack.service.profiles.list();
+      })
+      .then(function (profils) {
+        assert.equal(profils.length, 1, 'un seul profil : ' + profils.length);
+        assert.equal(profils[0].name, 'Maison (2)', 'profil mis a jour, pas duplique');
+        return stack.bus.invoke('testProfile', {
+          kind: 'xtream',
+          profileId: 'p1',
+          baseUrl: PORTAL_URL,
+          username: USERNAME,
+          password: PASSWORD
+        });
+      })
+      .then(function (reponses) {
+        assert.equal(reponses[0].data.ok, true, 'source joignable');
+        return stack.bus.invoke(
+          'importPlaylist',
+          {
+            profileId: 'p1',
+            kind: 'xtream',
+            contentType: 'live',
+            source: { url: PORTAL_URL, credentials: { username: USERNAME, password: PASSWORD } },
+            consent: { persistSecrets: false, insecureHttp: false }
+          },
+          // sans abonnement, la progression ne revient pas au client (comme sur la TV)
+          { subscribed: true }
+        );
+      })
+      .then(function () {
+        return waitFor(function () {
+          final = repliesOf(stack.bus, 'importPlaylist').filter(function (reply) {
+            return reply && reply.returnValue === true && reply.data && reply.data.final === true;
+          })[0];
+          return final || null;
+        }, 20000);
+      })
+      .then(function (reponse) {
+        assert.equal(reponse.data.job.phase, 'done', 'import termine malgre les ecritures rejouees');
+        return stack.bus.invoke('getCategories', { profileId: 'p1', contentType: 'live' });
+      })
+      .then(function (reponses) {
+        assert.equal(reponses[0].returnValue, true, 'commande servie');
+        assert.equal(Array.isArray(reponses[0].data.categories), true, 'categories lues apres import');
+        assert.ok(reponses[0].data.categories.length > 0, 'au moins une categorie');
+        return stack.bus.invoke('resolveStream', {
+          profileId: 'p1',
+          ref: { contentType: 'live', providerId: '1000' }
+        });
+      })
+      .then(function (reponses) {
+        assert.equal(reponses[0].returnValue, true, 'flux resolu apres les ecritures rejouees');
+        assert.equal(/^https:\/\/portal\.example\.com\/live\//.test(reponses[0].data.url), true, 'URL du portail construite');
+      });
+  });
+});
