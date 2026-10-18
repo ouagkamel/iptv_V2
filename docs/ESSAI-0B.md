@@ -3,7 +3,7 @@
 **Version cible du protocole :** 0.1.17<br>
 **État :** protocole préparé; résultats 0B non consignés.<br>
 **Références normatives :** `docs/PHASE-0.md` §0B et `docs/SPEC-v1.3.md` §§6.1, 11.2 et 12.<br>
-**Contexte :** le 18 octobre 2026, l’utilisateur a confirmé que les essais réalisés sur TV réelle sont OK. Ce retour valide l’étape 0A/D-46 au niveau communiqué; il ne fournit pas les nombres d’essais ni la matrice média de 0B.
+**Contexte :** le 18 octobre 2026, l’utilisateur a rapporté que les essais réalisés sur TV réelle sont OK. Faute de fiche, de modèle et de mesures détaillées, ce retour est consigné comme résultat qualitatif de 0A, pas comme preuve cellule par cellule ni comme qualification/certification 0B.
 
 > **Portée : qualification média uniquement.** Ce document ne démarre pas le développement fonctionnel V1-B. La qualification se fait d’abord sur les capacités natives de la TV; le repli MSE est relevé séparément et ne compte pas comme preuve de lecture native sur TV.
 
