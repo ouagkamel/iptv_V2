@@ -245,6 +245,8 @@ doit répondre depuis l'application, tandis qu'un appel émis depuis une **autre
 
 ## 0B — Lecteur et pipeline média
 
+> **Fiche de terrain pas à pas** : `docs/ESSAI-0B.md` (protocole, seuils, matrice par cellule et relevé à remplir). Les critères normatifs ci-dessous restent la référence.
+
 Pour chaque cellule (modèle × format × codec) : *smoke* 1–3 essais en développement, puis
 **qualification 10/10** ; seul le niveau **certification 30 (≥ 29/30) ou 20/20** autorise le mot
 « certifié » (§11.2).

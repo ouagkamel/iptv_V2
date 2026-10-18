@@ -1,4 +1,4 @@
-# Essai 0A — téléviseur LG webOS 6+ (version 0.1.16)
+# Essai 0A — téléviseur LG webOS 6+ (version 0.1.17)
 
 Feuille de route à exécuter **devant la TV**. Elle prouve le critère bloquant de la phase 0 :
 le socle applicatif tient sur un vrai téléviseur (service node, LS2, DB8, stockage privé,
@@ -12,9 +12,9 @@ Durée : ~20 min la première fois. Aucune commande de ce document ne publie quo
 
 | Pièce | Où |
 |---|---|
-| Paquet d'**essai** (source de test préconfigurée) | `release/local/com.ouagkamel.app.iptvplayer_0.1.16_all.ipk` |
+| Paquet d'**essai** (source de test préconfigurée) | `release/local/com.ouagkamel.app.iptvplayer_0.1.17_all.ipk` |
 | Mode d'emploi court livré avec le banc | `release/local/LISEZ-MOI-ESSAI.txt` |
-| Pack simulateur (banc hors TV) | `release/local/0.1.16-simulateur-source.zip` |
+| Pack simulateur (banc hors TV) | `release/local/0.1.17-simulateur-source.zip` |
 
 - [ ] Outillage LG installé : `npm i -g @webosose/ares-cli`
 - [ ] TV **webOS 6 ou plus**, sur le réseau local, application **Developer Mode** activée
@@ -22,6 +22,8 @@ Durée : ~20 min la première fois. Aucune commande de ce document ne publie quo
       1000 h** — s'il est tombé, `ares-install` répond `connection refused`.
 - [ ] Rien d'autre n'est nécessaire : le paquet d'essai embarque déjà le pont LS2, le service
       complet et la source de test (champs préremplis dans l'interface).
+
+**Correctif 0.1.17 (D-46) à contrôler ici :** DB8 exige `_rev` pour mettre à jour un objet existant. La progression d’import réécrit une même ligne de job ; le parcours doit aller jusqu’à `done`, sans `-3960` (« _rev must be specified ») ni `-3961` (révision périmée).
 
 ⚠️ Le paquet d'essai contient les identifiants du **compte de test**. Il ne se publie pas, ne se
 pousse pas, ne se partage pas. À la fin de la campagne, le désinstaller de la TV
@@ -32,7 +34,7 @@ pousse pas, ne se partage pas. À la fin de la campagne, le désinstaller de la 
 ```bash
 ares-setup-device --add tv --info "host=<IP de la TV>" --passphrase   # la TV affiche la phrase
 ares-device   --device tv --system-info                               # doit répondre : mode développeur visible
-ares-install  --device tv release/local/com.ouagkamel.app.iptvplayer_0.1.16_all.ipk
+ares-install  --device tv release/local/com.ouagkamel.app.iptvplayer_0.1.17_all.ipk
 ares-launch   --device tv com.ouagkamel.app.iptvplayer
 ares-log      --device tv --follow                                    # dans un second terminal
 ```
@@ -53,7 +55,7 @@ valeur observée dans la fiche (§5). Aucun identifiant ne doit apparaître null
 | 1 | La page s'ouvre : **bannière** et **témoin du bus** | le témoin répond — le pont LS2 de l'application fonctionne |
 | 2 | **Diagnostic du service** | `returnValue: true` ; `runtime.node = 8.12.x` ; version d'OpenSSL du firmware ; `roots.chain` = bundle embarqué ; `indexes: []` (aucun index avant import) |
 | 3 | **Tester la source** | `data.ok: true` avec `account.status`, `expiresAt`, `formats` ; le journal ne montre **aucun identifiant** |
-| 4 | **Importer (live)** | progression `downloading → parsing → writing → validating → swapping → done`, puis `data.final: true` |
+| 4 | **Importer (live)** | progression `downloading → parsing → writing → validating → swapping → done`, puis `data.final: true` ; en 0.1.17, la ligne DB8 du job est réécrite avec `_rev` : aucun refus `-3960`/`-3961` |
 | 5 | **État de l'import** | `job.phase: done`, compteurs cohérents — **après redémarrage de la TV** |
 | 6 | **Page** puis **Tranches** | `items[]` avec `ref.providerId`, **aucune URL** ; tranches alphabétiques non vides |
 | 7 | **Détail** puis **Résoudre le flux** | `streamMode` (`storedSecret` ou `derived`) ; l'URL n'apparaît que si « afficher l'URL complète » est cochée ; le journal reste muet |
@@ -106,7 +108,7 @@ c'est la mesure de la 0B (et la TV doit lire par la voie native — le repli MSE
 
 ```
 TV : marque/modèle .........  webOS .........  (Réglages TV > Général > À propos)
-Version instalée (ares-install --device tv --listfull) : 0.1.16  [ ] oui  [ ] non  -> .........
+Version installée (ares-install --device tv --listfull) : 0.1.17  [ ] oui  [ ] non  -> .........
 
 Diagnostic du service
   runtime.node ................  runtime.openssl (ou version firmware) ................
@@ -121,6 +123,7 @@ Formats de flux déclarés (ligne entière) :
 Lecture (0A : ouverture/sortie ; image et son = 0B)
   chaîne choisie (n° dans l'abonnement) : ........   bandeau/message éventuel : ................
   image : [ ] oui  [ ] non   son : [ ] oui  [ ] non
+  import D-46 (progression jusqu’à done, sans -3960/-3961) : [ ] réussi  [ ] échec
   zapping : [ ] immédiat  [ ] lent (…… s)  [ ] échec   — l'ancien flux est-il fermé ? [ ] oui [ ] non
 
 Spotlight / D-pad : ............   Mode pointeur : ............   Clavier virtuel : ............

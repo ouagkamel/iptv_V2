@@ -1,5 +1,11 @@
 # Journal d'exécution
 
+## 2026-10-18 — TV réelle : retour utilisateur positif sur 0A; préparation de la 0B média
+
+L'utilisateur rapporte que les essais réalisés sur TV réelle sont « tous bons ». Le modèle, le relevé détaillé et les mesures n'ont pas été communiqués; ce retour est consigné comme résultat qualitatif de 0A, sans preuve cellule par cellule et sans qualification/certification 0B. Le guide `docs/ESSAI-0A.md` est actualisé pour le paquet 0.1.17 et la vérification D-46.
+
+À la demande de l'utilisateur, préparation documentaire de la 0B média dans `docs/ESSAI-0B.md`, selon les critères normatifs ci-dessous. Aucun test 0B n'est consigné et aucun développement V1-B n'est autorisé par ce choix. Le contrôle de distribution LG demeure à résoudre avant V1-B (`docs/DISTRIBUTION-LG.md`).
+
 ## 2026-10-11 — import refusé sur le téléviseur : DB8 exige le `_rev` des objets existants (0.1.17)
 
 **Ce qui a été observé** (TV réelle, paquet 0.1.16, premier essai de la 0A) :
