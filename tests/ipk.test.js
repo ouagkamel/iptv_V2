@@ -90,9 +90,8 @@ var NEUTRE = [
   ''
 ].join('\n');
 
-// Valeurs **fictives** : le dépôt ne contient jamais les identifiants du compte de test (le test
-// « mécanisme sans secret » de `package.test.js` monte la garde). Le cas du secret réel est couvert
-// plus bas, en le lisant à l'exécution depuis `secrets.local/profils.js`.
+// Valeurs **fictives** : ces fixtures n'utilisent jamais les identifiants du compte réel.
+// Le test du profil versionné et celui du refus de publication sont séparés de ces archives synthétiques.
 var AVEC_SOURCE = [
   "'use strict';",
   'window.iptvProfils = {',

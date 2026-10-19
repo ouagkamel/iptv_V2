@@ -1,6 +1,6 @@
 # Essai 0B — qualification du lecteur et du pipeline média
 
-**Version cible du protocole :** 0.1.17<br>
+**Version cible du protocole :** 0.1.18<br>
 **État :** protocole préparé; résultats 0B non consignés.<br>
 **Références normatives :** `docs/PHASE-0.md` §0B et `docs/SPEC-v1.3.md` §§6.1, 11.2 et 12.<br>
 **Contexte :** le 18 octobre 2026, l’utilisateur a rapporté que les essais réalisés sur TV réelle sont OK. Faute de fiche, de modèle et de mesures détaillées, ce retour est consigné comme résultat qualitatif de 0A, pas comme preuve cellule par cellule ni comme qualification/certification 0B.
@@ -32,11 +32,11 @@ Ne pas mélanger les résultats de deux modèles dans une seule cellule. Une cel
 
 ## 2. Préparation
 
-1. Sur la TV réelle, confirmer l’application **0.1.17** :
+1. Sur la TV réelle, confirmer l’application **0.1.18** :
    ```bash
    ares-install --device tv --listfull
    ```
-   Le paquet d’essai préconfiguré, s’il est utilisé, est `release/local/com.ouagkamel.app.iptvplayer_0.1.17_all.ipk`. Il contient les champs du compte de test et ne doit jamais être publié, poussé ni transmis.
+   Le paquet d’essai préconfiguré, s’il est utilisé, est `release/local/com.ouagkamel.app.iptvplayer_0.1.18_all.ipk`. Il contient les champs du compte de test et ne doit jamais être publié, poussé ni transmis.
 2. Utiliser uniquement un compte de test autorisé et dédié; consigner `max_connections` si disponible. Ne pas lancer les essais simultanés au-delà de la limite annoncée par le portail.
 3. Sélectionner des flux dont l’accès et le conteneur annoncé sont connus. Ne pas modifier le User-Agent ni réordonner les formats pendant cette campagne : ces pistes sont closes pour D-44/D-45.
 4. Choisir un réseau stable; relever Wi-Fi/Ethernet, débit/latence approximatifs et toute interruption. Chaque essai commence lecteur fermé et se termine par arrêt effectif du lecteur.
@@ -77,7 +77,7 @@ Le simulateur est une régression complémentaire, pas une famille TV certifiée
 ## 5. Fiche de relevé par cellule
 
 ```text
-App : 0.1.17                 Date/heure : ........................
+App : 0.1.18                 Date/heure : ........................
 TV marque/modèle : .......... Famille/gamme : .......... webOS : ..........
 Réseau : .................... Source d’essai autorisée : (nom neutre, sans identifiant) ..........
 

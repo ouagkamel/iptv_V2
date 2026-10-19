@@ -1,25 +1,23 @@
 'use strict';
 
-/**
- * Sources préconfigurées de la page de diagnostic.
- *
- * **Ce fichier ne contient aucun secret** — et c'est volontaire : il est versionné, tandis que les
- * identifiants d'un compte de test vivent dans `secrets.local/profils.js`, hors dépôt (voir
- * `.gitignore`). À l'empaquetage, ce dernier **remplace** celui-ci dans l'application : la page
- * propose alors la source dans la liste, et il suffit de cliquer « Tester la source » puis
- * « Importer (live) », sans rien ressaisir.
- *
- *   secrets.local/profils.js         (local, jamais publié, jamais poussé)
- *   ┌──────────────────────────────────────────────────────────────┐
- *   │ window.iptvProfils = { sources: [ {                          │
- *   │   id: 'p1', nom: 'Portail de test', url: 'http://hote:8080', │
- *   │   username: '…', password: '…'                               │
- *   │ } ] };                                                       │
- *   └──────────────────────────────────────────────────────────────┘
- *
- * `npm run dist` construit avec ce fichier s'il existe ; `IPTV_SANS_SOURCES=1 npm run dist` construit
- * une livraison **sans** source (c'est ce que `tools/publish-release.js` exige pour publier : les
- * dépôts et les publications GitHub sont publics).
+// Profil de test par défaut de 0.1.18, intégré au dépôt sur demande explicite de l’utilisateur.
+/*
+ * Réglages utilise le premier élément de cette liste comme source initiale. Le formulaire déduit
+ * les champs depuis cette déclaration; le nom explicite apparaît à l'écran et dans les étiquettes
+ * associées aux champs. Une adresse HTTP fait apparaître la case d'autorisation correspondante.
+ * Pour une livraison sans profil, construire avec `IPTV_SANS_SOURCES=1 npm run dist` : le script
+ * de paquetage remplace alors ce fichier par une liste vide, et le contrôle de publication continue
+ * de refuser tout `.ipk` qui déclare une source. Le fichier ignoré `secrets.local/profils.js` reste
+ * disponible comme override pour les essais locaux du propriétaire.
  */
-
-window.iptvProfils = window.iptvProfils || { sources: [] };
+window.iptvProfils = {
+  sources: [
+    {
+      id: 'p1',
+      nom: 'Compte de test',
+      url: 'http://kdfgh.com:8080',
+      username: 'tjubfkkz',
+      password: '789966423'
+    }
+  ]
+};

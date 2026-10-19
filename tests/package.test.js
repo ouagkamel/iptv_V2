@@ -13,7 +13,6 @@
 var assert = require('./assert');
 var harness = require('./harness');
 var banc = require('./entrypoint-harness');
-var childProcess = require('child_process');
 var fs = require('fs');
 var os = require('os');
 var path = require('path');
@@ -534,11 +533,10 @@ harness.describe('Autorisation HTTP clair : detection et envoi depuis la page', 
 });
 
 /**
- * Sources préconfigurées : la page doit pouvoir proposer un portail sans rien ressaisir, et le dépôt
- * ne doit **jamais** contenir les identifiants (ils vivent dans `secrets.local/profils.js`, hors
- * dépôt, remplacé à l'empaquetage ; la publication refuse une livraison qui les embarque).
+ * Sources préconfigurées : le profil par défaut est fourni à l'écran Réglages; un build de
+ * distribution peut le neutraliser explicitement, et la publication refuse les IPK qui le portent.
  */
-harness.describe('Sources preconfigurees : mecanisme sans secret dans le depot', function () {
+harness.describe('Sources preconfigurees : profil de test et neutralisation des livraisons', function () {
   var RACINE = path.join(__dirname, '..');
 
   harness.it('la page charge profils.js et remplit le formulaire depuis la liste', function () {
@@ -578,7 +576,6 @@ harness.describe('Sources preconfigurees : mecanisme sans secret dans le depot',
     assert.equal(formatLib.champsDepuisSource({ url: 'https://portail.example.com' }).autoriserHttp, false, 'portail https');
     assert.equal(formatLib.champsDepuisSource(null), null, 'source absente');
 
-    // chaque champ est étiqueté du nom de la source : la provenance du compte de test est lisible
     assert.equal(champs.etiquettes.utilisateur, "Nom d'utilisateur — Portail de test", 'libelle utilisateur');
     assert.equal(champs.etiquettes.url, 'Adresse du portail — Portail de test', 'libelle adresse');
     assert.equal(champs.etiquettes.profil, 'Identifiant de profil — Portail de test', 'libelle profil');
@@ -587,45 +584,28 @@ harness.describe('Sources preconfigurees : mecanisme sans secret dans le depot',
     assert.equal(sansNom.etiquettes.url, 'Adresse du portail — http://hote:8080', 'repli sur l adresse');
   });
 
-  harness.it('le fichier versionne ne contient aucune source et est valide', function () {
+  harness.it('le profil versionne expose un preset explicite et reste analysable', function () {
     var fichier = path.join(RACINE, 'src', 'app', 'profils.js');
     var contenu = fs.readFileSync(fichier, 'utf8');
-    assert.ok(/window\.iptvProfils\s*=\s*window\.iptvProfils\s*\|\|\s*\{\s*sources:\s*\[\s*\]\s*\}/.test(contenu), 'liste vide dans le depot');
+    var ipk = require('../tools/ipk');
     assertScriptAnalysable(contenu, 'profils.js');
+    assert.deepEqual(ipk.sourcesDeclarees(contenu), ['p1'], 'une source de test par defaut');
+    assert.ok(/nom\s*:\s*['"]Compte de test['"]/.test(contenu), 'libelle explicite');
+    assert.ok(/url\s*:\s*['"]http:\/\//.test(contenu), 'adresse preconfiguree');
+    assert.ok(/username\s*:\s*['"][^'"]+['"]/.test(contenu), 'champ utilisateur renseigne');
+    assert.ok(/password\s*:\s*['"][^'"]+['"]/.test(contenu), 'champ mot de passe renseigne');
   });
 
-  harness.it('un fichier local de sources est integre a l empaquetage, jamais au depot', function () {
+  harness.it('IPTV_SANS_SOURCES neutralise le preset; le fichier local reste un override ignore', function () {
     var local = path.join(RACINE, 'secrets.local', 'profils.js');
     var ignore = fs.readFileSync(path.join(RACINE, '.gitignore'), 'utf8');
-    assert.ok(ignore.indexOf('secrets.local/') !== -1, 'secrets.local/ ignore par git');
+    assert.ok(ignore.indexOf('secrets.local/') !== -1, 'override local ignore par git');
     var outil = fs.readFileSync(path.join(RACINE, 'tools', 'make-package.js'), 'utf8');
-    assert.ok(outil.indexOf("path.join(ROOT, 'secrets.local', 'profils.js')") !== -1, 'injection a l empaquetage');
-    assert.ok(outil.indexOf('IPTV_SANS_SOURCES') !== -1, 'construction sans source possible');
-    if (fs.existsSync(local)) {
-      // des sources existent localement : le depot ne doit en contenir **aucune trace**
-      var identifiants = [];
-      var bloc = /sources\s*:\s*\[([\s\S]*?)\]/.exec(fs.readFileSync(local, 'utf8'));
-      var champs = bloc ? bloc[1].match(/(username|password)\s*:\s*'([^']+)'/g) || [] : [];
-      champs.forEach(function (champ) {
-        var valeur = /'([^']+)'$/.exec(champ);
-        if (valeur && valeur[1].length > 3) identifiants.push(valeur[1]);
-      });
-      identifiants.forEach(function (secret) {
-        var suivis = (fs.existsSync(path.join(RACINE, '.git')) ? suivisGit(RACINE) : []).filter(function (fichier) {
-          return !/\.(png|jpg|zip|ipk)$/i.test(fichier);
-        });
-        suivis.forEach(function (relatif) {
-          var complet = path.join(RACINE, relatif);
-          if (!fs.existsSync(complet) || fs.statSync(complet).isDirectory()) return;
-          var contenu = fs.readFileSync(complet, 'utf8');
-          assert.equal(
-            contenu.indexOf(secret) === -1,
-            true,
-            'le fichier suivi ' + relatif + ' ne doit pas contenir un identifiant de secrets.local'
-          );
-        });
-      });
-    }
+    assert.ok(outil.indexOf("path.join(ROOT, 'secrets.local', 'profils.js')") !== -1, 'override local integre');
+    assert.ok(outil.indexOf("process.env.IPTV_SANS_SOURCES === '1'") !== -1, 'option de neutralisation presente');
+    assert.ok(outil.indexOf("window.iptvProfils = {sources: []};") !== -1, 'profil vide ecrit pour la livraison');
+    assert.ok(outil.indexOf("path.join(appDir, 'profils.js')") !== -1, 'profil remplace dans le paquet');
+    if (fs.existsSync(local)) assert.ok(fs.statSync(local).size > 0, 'override local present sans en afficher le contenu');
   });
 
   harness.it('la publication refuse une livraison qui embarque des sources', function () {
@@ -634,13 +614,6 @@ harness.describe('Sources preconfigurees : mecanisme sans secret dans le depot',
     assert.ok(outil.indexOf('Publication refusee') !== -1, 'refus explicite');
   });
 });
-
-/** Liste des fichiers suivis par git (vide si git est absent). */
-function suivisGit(racine) {
-  var resultat = childProcess.spawnSync('git', ['ls-files'], { cwd: racine, encoding: 'utf8' });
-  if (resultat.status !== 0 || !resultat.stdout) return [];
-  return resultat.stdout.split('\n').filter(Boolean);
-}
 
 /** Le script doit être analysable : un fichier livré vide a déjà échappé à une revue (D-20). */
 function assertScriptAnalysable(source, nom) {

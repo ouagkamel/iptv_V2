@@ -18,6 +18,8 @@ Ce dépôt implémente la spécification `docs/SPEC-v1.3.md` **par incréments**
 L'état réel de chaque brique, les écarts et ce qui reste **à valider sur téléviseur** sont tenus à
 jour dans `docs/PLAN.md` et `docs/JOURNAL.md`.
 
+**Version source courante :** 0.1.18 ([tag `v0.1.18-phase0a`](https://github.com/ouagkamel/iptv_V2/tree/v0.1.18-phase0a); [notes de version](docs/RELEASE-0.1.18.md)).
+
 ## Choix techniques (imposés par la spécification §2 et §14)
 
 - **Enact 3.4.9 + Sandstone 1.4.6** (dernière branche couvrant webOS 6.0), `@enact/spotlight` pour le
@@ -41,39 +43,45 @@ ui/                                # interface Enact : source de l'application (
 
 L'application a **deux pages** : `index.html` porte l'interface Enact (accueil à quatre cartes,
 Live TV, réglages, lecteur) et `diagnostic.html` reste la page de contrôle de la phase 0A, joignable
-depuis *Réglages* → « Page de diagnostic (0A) ». Les deux lisent `profils.js`, remplacé à
-l'empaquetage par `secrets.local/profils.js` quand il existe (sources préconfigurées, hors dépôt).
+depuis *Réglages* → « Page de diagnostic (0A) ». En 0.1.18, le `profils.js` versionné fournit le
+profil de test par défaut; `secrets.local/profils.js` peut le remplacer pour un essai local. Une
+livraison sans source doit être construite avec `IPTV_SANS_SOURCES=1 npm run dist` : le paquet est
+alors neutralisé, et `tools/publish-release.js` refuse toute archive qui déclare des sources.
 
 ```bash
 npm ci                  # outillage de développement
+npm --prefix ui ci      # dépendances de l'interface (react, @enact/*)
 npm run build           # compile le service (ES2017/Node 8.12) puis l'interface
 npm test                # tests unitaires + contrats (node, sans dépendance)
 npm run lint:node812    # interdit toute API absente de Node 8.12
 npm run check:deps      # refuse une dépendance d'exécution non justifiée
-npm --prefix ui ci      # dépendances de l'interface (react, @enact/*)
 npm run build:ui        # construit l'interface Enact (Enact + Sandstone) dans ui/dist
-npm run pack:webos      # produit l'.ipk (nécessite ares-cli)
+npm run dist:local      # paquet d'essai préconfiguré dans release/local/ (nécessite ares-cli)
+IPTV_SANS_SOURCES=1 npm run dist  # livraison publiable sans profil préconfiguré
 ```
 
 Installation en mode développeur :
 
 ```bash
 npm i -g @webosose/ares-cli      # outillage LG (ares-package, ares-install, ares-launch)
-npm run pack:webos               # compile le service puis écrit release/com.ouagkamel.app.iptvplayer_<version>_all.ipk
-npm run dist                     # assemble dist/<version>/ (ipk + contenu dépaqueté + sommes) et dist/<version>.zip
-ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.10_all.ipk
+IPTV_SANS_SOURCES=1 npm run dist # compile et assemble le paquet publiable sans source
+ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.18_all.ipk
+
+# Pour l'essai avec les champs préremplis :
+npm run dist:local
+ares-install --device tv release/local/com.ouagkamel.app.iptvplayer_0.1.18_all.ipk
 ```
 
-**Téléchargements** : les publications du dépôt (`Releases`) portent l'`.ipk` et l'archive `dist/`
-prêts à installer — dernière en date :
+**Dernière release binaire GitHub** (distincte du tag source courant ci-dessus) :
 [`v0.1.8-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.8-phase0a) (service complet
 **et interface Enact V1-A** — accueil à quatre cartes, Live TV, réglages, lecteur ; pack simulateur et
 page de diagnostic inclus ; voir `docs/JOURNAL.md`, D-28 à D-32).
 
-`npm run dist` produit la **livraison téléchargeable** : `dist/<version>/` contient l'`.ipk`, le
-contenu du paquet dépaqueté, `SHA256SUMS.txt` et un `LISEZ-MOI.txt` ; `dist/<version>.zip` est
-l'archive prête à joindre à une publication GitHub. Les publications du dépôt portent cette archive
-et l'`.ipk` séparément.
+`IPTV_SANS_SOURCES=1 npm run dist` produit la **livraison téléchargeable publiable** : `dist/<version>/`
+contient l'`.ipk` sans source préconfigurée, le contenu du paquet dépaqueté, `SHA256SUMS.txt` et un
+`LISEZ-MOI.txt` ; `dist/<version>.zip` est l'archive prête à joindre à une publication GitHub.
+`npm run dist:local` fabrique séparément le paquet d'essai avec le profil prérempli dans
+`release/local/`; ne pas joindre ces artefacts à une publication.
 
 Le paquet produit contient le **service complet**, l'**interface Enact de V1-A** (`ui/main.js`) et la
 **page de diagnostic** télécommandable (`diagnostic.html`), qui appelle elle aussi les douze
@@ -110,9 +118,12 @@ de portail complète.
 
 ## Sécurité et vie privée
 
-- Aucun secret (URL de flux, identifiant, token) n'est journalisé, ni renvoyé à l'interface, ni
-  stocké en clair : l'index est chiffré par blocs de taille fixe, la clé maître vit dans DB8
-  app-aware (§8.2, §15.3).
+- Les identifiants saisis ou importés à l'exécution ne sont pas journalisés ni renvoyés à l'interface;
+  l'index est chiffré par blocs de taille fixe, et la clé maître vit dans DB8 app-aware (§8.2, §15.3).
+- Exception explicitement demandée pour 0.1.18 : le profil de test de `src/app/profils.js` est
+  versionné en clair dans le dépôt public. Il doit être considéré comme public; ne pas y mettre de
+  compte privé ou de production. Pour une publication, construire explicitement avec
+  `IPTV_SANS_SOURCES=1`; le contrôle de publication refuse les paquets qui embarquent une source.
 - L'index protège contre une autre application et une lecture non privilégiée des fichiers — **pas**
   contre un appareil rooté ni un attaquant privilégié (§8.1). Cette limite est affichée dans la page
   « À propos ».

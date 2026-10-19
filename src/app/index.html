@@ -14,9 +14,9 @@
   <div id="root"></div>
   <!--
     `profils.js` vient **avant** l'interface : il installe `window.iptvProfils`, que l'application
-    lit au démarrage pour préremplir le profil Xtream. A l'empaquetage, ce fichier est remplacé par
-    `secrets.local/profils.js` quand il existe (hors dépôt) ; la version du dépôt ne contient aucune
-    source. `ui/main.js` embarque le pont LS2 et tous les écrans : aucun autre fichier n'est chargé.
+    lit au démarrage pour préremplir le profil Xtream. Le profil versionné est le preset de test
+    par défaut en 0.1.18; les essais locaux peuvent le remplacer par `secrets.local/profils.js`, et
+    `IPTV_SANS_SOURCES=1` l'efface pour une livraison publiable. `ui/main.js` embarque le pont LS2.
   -->
   <script src="profils.js"></script>
   <script src="ui/main.js"></script>

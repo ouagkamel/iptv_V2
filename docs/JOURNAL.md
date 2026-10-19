@@ -1,5 +1,11 @@
 # Journal d'exécution
 
+## 2026-10-19 — 0.1.18 : profil de test préconfiguré par défaut
+
+À la demande de l'utilisateur, le profil de test est maintenant versionné dans `src/app/profils.js`; Réglages ouvre ce profil avec les champs remplis. Les valeurs ne sont pas recopiées dans ce journal. Le profil est présent dans le dépôt public conformément à son autorisation explicite. Le paquet d'essai 0.1.18 est construit séparément dans `release/local/`; aucun identifiant n'est ajouté aux notes ni aux messages de commit.
+
+Le chemin de livraison sans source reste disponible via `IPTV_SANS_SOURCES=1 npm run dist`, qui neutralise le profil pour le paquet; `tools/publish-release.js` continue de refuser les `.ipk` contenant une source. Aucun appel réseau, test de compte ou import live n'a été lancé ici. La campagne 0B reste à exécuter; aucun résultat média n'est certifié et V1-B reste hors périmètre.
+
 ## 2026-10-18 — TV réelle : retour utilisateur positif sur 0A; préparation de la 0B média
 
 L'utilisateur rapporte que les essais réalisés sur TV réelle sont « tous bons ». Le modèle, le relevé détaillé et les mesures n'ont pas été communiqués; ce retour est consigné comme résultat qualitatif de 0A, sans preuve cellule par cellule et sans qualification/certification 0B. Le guide `docs/ESSAI-0A.md` est actualisé pour le paquet 0.1.17 et la vérification D-46.

@@ -172,11 +172,17 @@ function main() {
       ' octets)'
   );
 
-  // 3bis) sources préconfigurées : le fichier **local** (hors dépôt) remplace celui du dépôt dans
-  // l'application empaquetée. `IPTV_SANS_SOURCES=1` construit une livraison publiable, sans secret.
+  // 3bis) profil préconfiguré : le dépôt porte le compte de test par défaut en 0.1.18.
+  // `IPTV_SANS_SOURCES=1` le neutralise explicitement pour les livraisons publiques; sinon, le
+  // fichier local secrets.local/profils.js (s'il existe) remplace le profil versionné pour l'essai.
   var sourceLocales = path.join(ROOT, 'secrets.local', 'profils.js');
   if (process.env.IPTV_SANS_SOURCES === '1') {
-    console.log('[pack] sources preconfigurees : ignorees (IPTV_SANS_SOURCES=1)');
+    fs.writeFileSync(
+      path.join(appDir, 'profils.js'),
+      "'use strict';\nwindow.iptvProfils = {sources: []};\n",
+      'utf8'
+    );
+    console.log('[pack] profil preconfigure : neutralise (IPTV_SANS_SOURCES=1)');
   } else if (fs.existsSync(sourceLocales)) {
     fs.copyFileSync(sourceLocales, path.join(appDir, 'profils.js'));
     console.log('[pack] sources preconfigurees : secrets.local/profils.js integre (hors depot)');
