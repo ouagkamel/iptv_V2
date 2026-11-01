@@ -72,10 +72,10 @@ npm run dist:local
 ares-install --device tv release/local/com.ouagkamel.app.iptvplayer_0.1.18_all.ipk
 ```
 
-**Dernière release binaire GitHub** (distincte du tag source courant ci-dessus) :
-[`v0.1.8-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.8-phase0a) (service complet
-**et interface Enact V1-A** — accueil à quatre cartes, Live TV, réglages, lecteur ; pack simulateur et
-page de diagnostic inclus ; voir `docs/JOURNAL.md`, D-28 à D-32).
+**Dernière publication binaire GitHub (pré-release 0A)** :
+[`v0.1.18-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.18-phase0a), avec l'`.ipk`,
+l'archive `dist/`, le pack simulateur et les sommes SHA-256. Le paquet téléchargeable est neutralisé
+(sans profil préconfiguré); le profil par défaut demeure dans le code source versionné.
 
 `IPTV_SANS_SOURCES=1 npm run dist` produit la **livraison téléchargeable publiable** : `dist/<version>/`
 contient l'`.ipk` sans source préconfigurée, le contenu du paquet dépaqueté, `SHA256SUMS.txt` et un

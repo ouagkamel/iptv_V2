@@ -1,10 +1,14 @@
 # Journal d'exécution
 
+## 2026-11-01 — publication de la pré-release GitHub 0.1.18
+
+Le tag `v0.1.18-phase0a` est publié comme pré-release GitHub avec quatre pièces jointes : `.ipk`, archive `dist`, pack simulateur et `SHA256SUMS.txt`. Les artefacts de publication ont été construits avec `IPTV_SANS_SOURCES=1`; le profil est absent des paquets et le contrôle `tools/publish-release.js` les accepte. Le paquet d'essai prérempli reste séparé dans `release/local/`. La suite `npm run verify` a réussi (contrôle Node 8.12, dépendances, typecheck; 261 tests, 0 échec). Aucun test de connexion au portail, import live, ni essai 0B sur téléviseur n'a été effectué à cette étape.
+
 ## 2026-10-19 — 0.1.18 : profil de test préconfiguré par défaut
 
 À la demande de l'utilisateur, le profil de test est maintenant versionné dans `src/app/profils.js`; Réglages ouvre ce profil avec les champs remplis. Les valeurs ne sont pas recopiées dans ce journal. Le profil est présent dans le dépôt public conformément à son autorisation explicite. Le paquet d'essai 0.1.18 est construit séparément dans `release/local/`; aucun identifiant n'est ajouté aux notes ni aux messages de commit.
 
-Le chemin de livraison sans source reste disponible via `IPTV_SANS_SOURCES=1 npm run dist`, qui neutralise le profil pour le paquet; `tools/publish-release.js` continue de refuser les `.ipk` contenant une source. Aucun appel réseau, test de compte ou import live n'a été lancé ici. La campagne 0B reste à exécuter; aucun résultat média n'est certifié et V1-B reste hors périmètre.
+Le chemin de livraison sans source reste disponible via `IPTV_SANS_SOURCES=1 npm run dist`, qui neutralise le profil pour le paquet; `tools/publish-release.js` continue de refuser les `.ipk` contenant une source. Aucun appel au portail, test de compte ou import live n'a été lancé lors de la préparation. La campagne 0B reste à exécuter; aucun résultat média n'est certifié et V1-B reste hors périmètre.
 
 ## 2026-10-18 — TV réelle : retour utilisateur positif sur 0A; préparation de la 0B média
 
