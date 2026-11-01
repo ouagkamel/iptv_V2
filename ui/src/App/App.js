@@ -1,12 +1,10 @@
 'use strict';
 
 /**
- * Application V1-A (§1.4) : accueil à quatre cartes, barre de navigation globale, Live TV
- * (catégories + chaînes), lecteur natif alimenté par `resolveStream()`, réglages du profil Xtream
- * (test, consentement, erreurs normalisées) et diagnostic local minimal.
+ * Application V1-A avec la tranche autorisée de V1-B : accueil à quatre cartes, navigation globale,
+ * Live TV, grille/fiches VOD, lecteur natif alimenté par `resolveStream()`, Réglages et diagnostic.
  *
- * Les écrans non livrés dans l'incrément (Films, Séries) sont **masqués proprement** : ils annoncent
- * l'incrément qui les apporte au lieu d'une grille vide (§1.4). Le lecteur est un panneau à part :
+ * Les capacités VOD restantes et Séries sont signalées sans écran factice. Le lecteur est un panneau à part :
  * Retour le quitte et rend l'écran d'origine à sa position (§4.6).
  *
  * Pile de panneaux : 0 = accueil, 1 = contenu (barre de navigation + section), 2 = lecteur.
@@ -50,7 +48,8 @@ class App extends React.Component {
 			profil: profils.etatInitial(),
 			messages: [],
 			lecture: null,
-			diagnostic: null
+			diagnostic: null,
+			revisionVOD: 0
 		};
 		this.allerAuContenu = this.allerAuContenu.bind(this);
 		this.retour = this.retour.bind(this);
@@ -59,6 +58,7 @@ class App extends React.Component {
 		this.lancer = this.lancer.bind(this);
 		this.quitterLecteur = this.quitterLecteur.bind(this);
 		this.rafraichirDiagnostic = this.rafraichirDiagnostic.bind(this);
+		this.notifierImportVOD = this.notifierImportVOD.bind(this);
 		this.surSelectOnglet = this.surSelectOnglet.bind(this);
 	}
 
@@ -112,6 +112,10 @@ class App extends React.Component {
 		if (cible) this.setState({section: cible.cle});
 	}
 
+	notifierImportVOD() {
+		this.setState((precedent) => ({revisionVOD: precedent.revisionVOD + 1}));
+	}
+
 	rafraichirDiagnostic() {
 		service.diagnostics().then((resultat) => {
 			this.setState({diagnostic: resultat});
@@ -132,7 +136,9 @@ class App extends React.Component {
 			signaler: this.signaler,
 			lancer: this.lancer,
 			diagnostic,
-			rafraichirDiagnostic: this.rafraichirDiagnostic
+			rafraichirDiagnostic: this.rafraichirDiagnostic,
+			revisionVOD: this.state.revisionVOD,
+			notifierImportVOD: this.notifierImportVOD
 		};
 		const titreProfil = profil.nom ? 'profil : ' + profil.nom : null;
 

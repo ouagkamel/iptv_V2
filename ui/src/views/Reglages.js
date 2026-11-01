@@ -6,7 +6,7 @@
  * - les champs sont **préremplis** par la source préconfigurée (`profils.js`, remplacé à
  *   l'empaquetage par `secrets.local/profils.js`, hors dépôt) : rien à ressaisir à la télécommande ;
  * - « Tester la source » affiche le verdict réel (`Active`/`Expired`) et la limite de connexions ;
- * - « Importer (live) » suit la progression par abonnement (§15.4) et affiche le nombre d'entrées ;
+ * - « Importer (live) » et « Importer (VOD) » suivent chacun la progression par abonnement (§15.4) ;
  * - le consentement « HTTP clair » (§8.2) est une case explicite : un portail `http://` est refusé
  *   tant qu'elle n'est pas cochée, et le service dit **quel hôte** confirmer ;
  * - le diagnostic local montre ce que le service voit de son côté (`db.ok`, index, racines, chemin
@@ -51,7 +51,7 @@ function Champ({champ, libelle, valeur, type, majProfil}) {
 }
 
 function Reglages() {
-	const {profil, majProfil, signaler, diagnostic, rafraichirDiagnostic} = useApp();
+	const {profil, majProfil, signaler, diagnostic, rafraichirDiagnostic, notifierImportVOD} = useApp();
 	const [verdict, setVerdict] = React.useState(null);
 	const [progression, setProgression] = React.useState(null);
 	const [journal, setJournal] = React.useState([]);
@@ -115,66 +115,87 @@ function Reglages() {
 
 	/** Suit l'import jusqu'à la phase finale, puis rafraîchit le diagnostic local. */
 	const surveiller = React.useCallback(
-		(jobId) => {
+		(jobId, contentType) => {
 			let tours = 0;
 			const tic = () => {
 				tours += 1;
-				service.getImportJob(jobId).then((resultat) => {
-					const job = resultat.data || {};
-					setProgression({phase: job.phase || 'inconnue', entries: job.entriesRead || 0});
-					if (job.phase === 'done' || job.phase === 'failed' || job.phase === 'cancelled') {
-						const avertissements = (job.warnings || []).length;
-						tracer(
-							'import ' +
-								job.phase +
-								' — ' +
-								(job.entriesRead || 0) +
-								' entrée(s)' +
-								(avertissements ? ' (' + avertissements + ' avertissement(s))' : ''),
-							job.phase === 'done' ? 'info' : 'erreur'
-						);
-						rafraichirDiagnostic();
-						return;
-					}
-					if (tours < 600) window.setTimeout(tic, 500);
-				});
+				service
+					.getImportJob(jobId)
+					.then((resultat) => {
+						const job = resultat.data || {};
+						setProgression({contentType, phase: job.phase || 'inconnue', entries: job.entriesRead || 0});
+						if (job.phase === 'done' || job.phase === 'failed' || job.phase === 'cancelled') {
+							const avertissements = (job.warnings || []).length;
+							tracer(
+								'import ' +
+									contentType +
+									' ' +
+									job.phase +
+									' — ' +
+									(job.entriesRead || 0) +
+									' entrée(s)' +
+									(avertissements ? ' (' + avertissements + ' avertissement(s))' : ''),
+								job.phase === 'done' ? 'info' : 'erreur'
+							);
+							if (job.phase === 'done' && contentType === 'vod') notifierImportVOD();
+							rafraichirDiagnostic();
+							return;
+						}
+						if (tours < 600) window.setTimeout(tic, 500);
+					})
+					.catch(() => {
+						setProgression({contentType, phase: 'failed', entries: 0});
+						tracer('suivi import ' + contentType + ' : service indisponible', 'erreur');
+					});
 			};
 			window.setTimeout(tic, 500);
 		},
-		[tracer, rafraichirDiagnostic]
+		[tracer, rafraichirDiagnostic, notifierImportVOD]
 	);
 
-	const importer = React.useCallback(() => {
-		tracer('import live demandé');
-		const flux = service.importerPlaylist(
-			{
-				profileId: profil.profilId,
-				baseUrl: profil.url,
-				username: profil.username,
-				password: profil.password,
-				contentType: 'live',
-				insecureHttp: profil.insecureHttp,
-				persistSecrets: false
-			},
-			(etape) => {
-				const job = (etape.data && etape.data.job) || {};
-				setProgression({phase: job.phase || 'downloading', entries: job.entriesRead || 0});
-			}
-		);
-		fluxRef.current = flux;
-		flux.depart
-			.then((resultat) => {
-				if (!resultat.ok) {
-					tracer('import refusé : ' + service.messageDe(resultat), 'erreur');
-					return;
+	const importer = React.useCallback(
+		(contentType) => {
+			const type = contentType === 'vod' ? 'vod' : 'live';
+			setProgression({contentType: type, phase: 'downloading', entries: 0});
+			tracer('import ' + type + ' demandé');
+			const flux = service.importerPlaylist(
+				{
+					profileId: profil.profilId,
+					baseUrl: profil.url,
+					username: profil.username,
+					password: profil.password,
+					contentType: type,
+					insecureHttp: profil.insecureHttp,
+					persistSecrets: false
+				},
+				(etape) => {
+					const job = (etape.data && etape.data.job) || {};
+					setProgression({contentType: type, phase: job.phase || 'downloading', entries: job.entriesRead || 0});
 				}
-				const jobId = resultat.data && resultat.data.jobId;
-				tracer('import lancé : ' + jobId);
-				if (resultat.data && resultat.data.profilCree) tracer('profil créé par cet import');
-				surveiller(jobId);
-			})
-			.catch((erreur) => tracer('import : ' + erreur.message, 'erreur'));
-	}, [profil, tracer, surveiller]);
+			);
+			fluxRef.current = flux;
+			flux.depart
+				.then((resultat) => {
+					if (!resultat.ok) {
+						setProgression({contentType: type, phase: 'failed', entries: 0});
+						tracer('import ' + type + ' refusé : ' + service.messageDe(resultat), 'erreur');
+						return;
+					}
+					const jobId = resultat.data && resultat.data.jobId;
+					tracer('import ' + type + ' lancé : ' + jobId);
+					if (resultat.data && resultat.data.profilCree) tracer('profil créé par cet import');
+					surveiller(jobId, type);
+				})
+				.catch(() => {
+					setProgression({contentType: type, phase: 'failed', entries: 0});
+					tracer('import ' + type + ' : service indisponible', 'erreur');
+				});
+		},
+		[profil, tracer, surveiller]
+	);
+
+	const importerLive = React.useCallback(() => importer('live'), [importer]);
+	const importerVOD = React.useCallback(() => importer('vod'), [importer]);
 
 	const annulerImport = React.useCallback(() => {
 		if (fluxRef.current && fluxRef.current.annuler) fluxRef.current.annuler();
@@ -192,6 +213,8 @@ function Reglages() {
 
 	const listeSources = profil.sources || [];
 	const etiquettes = profil.etiquettes || {};
+	const importActif =
+		progression && ['downloading', 'parsing', 'writing', 'validating', 'swapping'].indexOf(progression.phase) !== -1;
 
 	return (
 		<Panel className={css.reglages}>
@@ -246,8 +269,9 @@ function Reglages() {
 							<Button className={css.principal} onClick={tester}>
 								Tester la source
 							</Button>
-							<Button onClick={importer}>Importer (live)</Button>
-							<Button onClick={annulerImport}>Annuler l&apos;import</Button>
+							<Button onClick={importerLive} disabled={importActif}>Importer (live)</Button>
+							<Button onClick={importerVOD} disabled={importActif}>Importer (VOD)</Button>
+							<Button onClick={annulerImport} disabled={!importActif}>Annuler l&apos;import</Button>
 						</div>
 
 						{verdict ? (
@@ -263,7 +287,7 @@ function Reglages() {
 							<div className={css.progression}>
 								<ProgressBar backgroundProgress={0.2} progress={progression.phase === 'done' ? 1 : 0.5} />
 								<BodyText className={css.petit}>
-									{PHASES[progression.phase] || progression.phase} — {progression.entries} entrée(s)
+									{progression.contentType === 'vod' ? 'VOD' : 'live'} — {PHASES[progression.phase] || progression.phase} — {progression.entries} entrée(s)
 								</BodyText>
 							</div>
 						) : null}

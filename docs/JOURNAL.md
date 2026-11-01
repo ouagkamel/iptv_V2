@@ -4,6 +4,12 @@
 
 Le tag `v0.1.18-phase0a` est publié comme pré-release GitHub avec quatre pièces jointes : `.ipk`, archive `dist`, pack simulateur et `SHA256SUMS.txt`. Les artefacts de publication ont été construits avec `IPTV_SANS_SOURCES=1`; le profil est absent des paquets et le contrôle `tools/publish-release.js` les accepte. Le paquet d'essai prérempli reste séparé dans `release/local/`. La suite `npm run verify` a réussi (contrôle Node 8.12, dépendances, typecheck; 261 tests, 0 échec). Aucun test de connexion au portail, import live, ni essai 0B sur téléviseur n'a été effectué à cette étape.
 
+## 2026-11-01 — V1-B : tranche VOD autorisée (développement non publié)
+
+Après choix ciblé de l'utilisateur, la tranche VOD comprend les catégories, une grille virtualisée paginée depuis l'index, les posters avec repli, les métadonnées disponibles, la fiche modale (`getDetails`) et le lancement du lecteur par `resolveStream`. Réglages propose désormais **Importer (VOD)** à côté de l'import live; la grille se rafraîchit après un import VOD achevé. Aucun import réel n'a été lancé. Recherche indexée, saut alphabétique, favoris, reprise, EPG, séries et le reste de V1-B restent hors périmètre. Travail basé sur `420c3ce`, dans la branche `v1b-vod-grid-details`; la pré-release 0.1.18 n'est pas modifiée et aucune release n'est publiée.
+
+Vérifications locales réussies : `npm --prefix ui run lint` (sans avertissement), `npm run build:ui`, `npm run verify` (compatibilité Node 8.12, dépendances, typecheck, 265 tests, 0 échec), `git diff --check`. Aucun portail, service live, essai TV réelle ou go/no-go LG n'a été sollicité; le go/no-go de distribution reste non tranché.
+
 ## 2026-10-19 — 0.1.18 : profil de test préconfiguré par défaut
 
 À la demande de l'utilisateur, le profil de test est maintenant versionné dans `src/app/profils.js`; Réglages ouvre ce profil avec les champs remplis. Les valeurs ne sont pas recopiées dans ce journal. Le profil est présent dans le dépôt public conformément à son autorisation explicite. Le paquet d'essai 0.1.18 est construit séparément dans `release/local/`; aucun identifiant n'est ajouté aux notes ni aux messages de commit.

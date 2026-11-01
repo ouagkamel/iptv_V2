@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Accueil : **quatre cartes** (§4.3 « Accueil »), parcourables au D-pad. Chaque carte entre dans sa
- * section ; Films et Séries annoncent l'incrément qui les livre (§1.4) au lieu d'un écran vide.
+ * Accueil : **quatre cartes** (§4.3 « Accueil »), parcourables au D-pad. Films expose la tranche VOD
+ * autorisée (grille + fiche); les fonctions VOD restantes et Séries ne sont pas annoncées comme livrées.
  */
 
 import React from 'react';
@@ -15,7 +15,7 @@ import css from './Accueil.module.less';
 
 const DESCRIPTIONS = {
 	live: 'Chaînes du fournisseur, par catégorie',
-	vod: 'Films — incrément V1-B',
+	vod: 'Films — grille et fiches VOD (V1-B partiel)',
 	series: 'Séries — incrément V1-C',
 	reglages: 'Profil Xtream, import, diagnostic local'
 };

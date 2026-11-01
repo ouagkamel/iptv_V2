@@ -1,16 +1,262 @@
 .ecran {
 	height: 100%;
-	padding: 48px;
-	box-sizing: border-box;
-	display: flex;
-	flex-direction: column;
-	gap: 16px;
-	justify-content: center;
-	align-items: center;
-	text-align: center;
+	min-height: 0;
 }
 
-.texte {
-	max-width: 70%;
+.panneaux {
+	display: flex;
+	height: 100%;
+	min-height: 0;
+	gap: 16px;
+	padding: 12px 24px 24px;
+	box-sizing: border-box;
+}
+
+.categories {
+	width: 27%;
+	min-width: 250px;
+	max-width: 390px;
+	min-height: 0;
+	overflow-y: auto;
+	padding-inline-end: 8px;
+	box-sizing: border-box;
+}
+
+.enteteCategories,
+.titreGrille {
+	font-weight: 600;
+	padding: 6px 12px;
+	opacity: 0.9;
+}
+
+.categorie,
+.categorieActive {
+	width: 100%;
+}
+
+.categorieActive {
+	font-weight: 700;
+}
+
+.contenu {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.enteteGrille {
+	min-height: 50px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding-inline: 4px;
+}
+
+.titreGrille {
+	padding-inline-start: 8px;
+	font-size: 20px;
+}
+
+.actionsEntete {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.avertissement {
+	font-size: 15px;
+	opacity: 0.8;
+}
+
+.zoneGrille {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.liste {
+	height: 100%;
+}
+
+.elementGrille,
+.film {
+	width: 100%;
+	height: 100%;
+	box-sizing: border-box;
+}
+
+.film {
+	padding: 8px;
+}
+
+.filmPoster {
+	width: 100%;
+	height: 220px;
+	border-radius: 5px;
+}
+
+.filmCaption {
+	font-size: 18px;
+	line-height: 23px;
+}
+
+.filmLabel {
+	font-size: 15px;
+	line-height: 19px;
+	opacity: 0.82;
+}
+
+.messageVide {
+	max-width: 700px;
+	padding: 24px;
 	opacity: 0.85;
+}
+
+.erreurPage,
+.erreurFiche {
+	padding: 8px 16px;
+	color: #ffaaaa;
+	word-break: break-word;
+}
+
+.chargementSuite {
+	position: absolute;
+	z-index: 1;
+	top: 8px;
+	inset-inline-end: 24px;
+	padding: 6px 10px;
+	background-color: rgba(0, 0, 0, 0.7);
+	border-radius: 4px;
+}
+
+.popup {
+	max-width: 94vw;
+}
+
+.fiche {
+	width: 900px;
+	max-width: 90vw;
+	max-height: 82vh;
+	box-sizing: border-box;
+	display: flex;
+	align-items: flex-start;
+	gap: 28px;
+	overflow-y: auto;
+	padding: 28px;
+	border-radius: 8px;
+	background-color: #20242b;
+}
+
+.afficheFiche {
+	width: 270px;
+	flex: 0 0 270px;
+}
+
+.posterFiche {
+	width: 250px;
+	height: 375px;
+	box-sizing: border-box;
+}
+
+.posterFicheImage {
+	width: 100%;
+	height: 100%;
+	border-radius: 6px;
+}
+
+.contenuFiche {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.titreFiche {
+	font-size: 30px;
+	line-height: 1.2;
+	font-weight: 700;
+}
+
+.metaFiche {
+	font-size: 17px;
+	opacity: 0.78;
+}
+
+.synopsis {
+	max-height: 34vh;
+	overflow-y: auto;
+	white-space: pre-wrap;
+	line-height: 1.45;
+	opacity: 0.92;
+}
+
+.indisponible {
+	font-size: 16px;
+	color: #ffd27f;
+}
+
+.actionsFiche {
+	display: flex;
+	gap: 16px;
+	margin-top: 8px;
+}
+
+.boutonLire {
+	font-weight: 700;
+}
+
+@media (max-width: 1100px) {
+	.categories {
+		width: 30%;
+		min-width: 210px;
+	}
+
+	.fiche {
+		width: 92vw;
+		gap: 18px;
+		padding: 20px;
+	}
+
+	.afficheFiche {
+		width: 195px;
+		flex-basis: 195px;
+	}
+
+	.posterFiche {
+		width: 180px;
+		height: 270px;
+	}
+}
+
+@media (max-width: 760px) {
+	.panneaux {
+		gap: 8px;
+		padding-inline: 12px;
+	}
+
+	.categories {
+		width: 34%;
+		min-width: 150px;
+	}
+
+	.fiche {
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.afficheFiche {
+		width: 160px;
+		flex-basis: auto;
+	}
+
+	.posterFiche {
+		width: 150px;
+		height: 225px;
+	}
 }

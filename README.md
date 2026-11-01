@@ -11,14 +11,14 @@ Ce dépôt implémente la spécification `docs/SPEC-v1.3.md` **par incréments**
 | Socle | contrats `§15.1`, crypto d'index `§15.3`, index/recherche `§15.2`, machines d'état `§15.5`, outillage CI | **livré (étape 1)** |
 | Service | client HTTP `§2.5`, parseur JSON incrémental, DB8 `§2.4`, adaptateur Xtream `§5.1`, import reprenable `§15.5`, protocole LS2 `§15.4`, diagnostic local | **livré (étape 2)** |
 | V1-A | Xtream (profil, test) + Live TV (catégories, chaînes) + lecteur + `resolveStream()` + diagnostic local | **livré (étape 3)** : service complet + **interface Enact** (`ui/`) — qualification lecteur (§0B) à faire sur TV |
-| V1-B | EPG, favoris, reprise, VOD (grille, fiche, recherche indexée, saut alphabétique) | à venir |
+| V1-B | EPG, favoris, reprise, VOD (grille, fiche, recherche indexée, saut alphabétique) | **partiel, en cours** — tranche autorisée : catégories, grille virtualisée et fiches VOD; import VOD séparé dans Réglages. Recherche, saut alphabétique, favoris, reprise et EPG restent à faire |
 | V1-C | Séries (saisons, épisodes) + navigation globale persistante | à venir |
 | V1-D | M3U (second moteur, identité `logicalKey`/`variantKey`), gros catalogues, index chiffré, reprise d'import | à venir |
 
 L'état réel de chaque brique, les écarts et ce qui reste **à valider sur téléviseur** sont tenus à
 jour dans `docs/PLAN.md` et `docs/JOURNAL.md`.
 
-**Version source courante :** 0.1.18 ([tag `v0.1.18-phase0a`](https://github.com/ouagkamel/iptv_V2/tree/v0.1.18-phase0a); [notes de version](docs/RELEASE-0.1.18.md)).
+**Dernière version publiée :** 0.1.18 ([tag `v0.1.18-phase0a`](https://github.com/ouagkamel/iptv_V2/tree/v0.1.18-phase0a); [notes de version](docs/RELEASE-0.1.18.md)). La tranche VOD décrite ci-dessus est un travail de développement non publié.
 
 ## Choix techniques (imposés par la spécification §2 et §14)
 
@@ -42,7 +42,7 @@ ui/                                # interface Enact : source de l'application (
 ```
 
 L'application a **deux pages** : `index.html` porte l'interface Enact (accueil à quatre cartes,
-Live TV, réglages, lecteur) et `diagnostic.html` reste la page de contrôle de la phase 0A, joignable
+Live TV, tranche VOD autorisée — grille et fiches —, réglages, lecteur) et `diagnostic.html` reste la page de contrôle de la phase 0A, joignable
 depuis *Réglages* → « Page de diagnostic (0A) ». En 0.1.18, le `profils.js` versionné fournit le
 profil de test par défaut; `secrets.local/profils.js` peut le remplacer pour un essai local. Une
 livraison sans source doit être construite avec `IPTV_SANS_SOURCES=1 npm run dist` : le paquet est
@@ -83,10 +83,11 @@ contient l'`.ipk` sans source préconfigurée, le contenu du paquet dépaqueté,
 `npm run dist:local` fabrique séparément le paquet d'essai avec le profil prérempli dans
 `release/local/`; ne pas joindre ces artefacts à une publication.
 
-Le paquet produit contient le **service complet**, l'**interface Enact de V1-A** (`ui/main.js`) et la
+La pré-release publiée v0.1.18 contient le **service complet**, l'**interface Enact de V1-A** (`ui/main.js`) et la
 **page de diagnostic** télécommandable (`diagnostic.html`), qui appelle elle aussi les douze
-commandes LS2 : elle permet d'exécuter la phase 0A sur la TV même si l'interface refuse de démarrer
-(procédure et preuves attendues dans `docs/PHASE-0.md`).
+commandes LS2 et permet d'exécuter la phase 0A sur TV même si l'interface refuse de démarrer.
+La tranche VOD en développement dans la source n'a pas été intégrée à cet artefact ni republiée;
+elle n'a pas été testée sur TV.
 Le détail des vérifications à faire **sur la TV** (phase 0A/0B, §12) est dans `docs/PHASE-0.md`.
 
 Avant la TV, un portail réel peut être éprouvé **hors appareil** avec le service tel qu'il sera

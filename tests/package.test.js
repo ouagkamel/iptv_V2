@@ -622,12 +622,12 @@ function assertScriptAnalysable(source, nom) {
 }
 
 /**
- * Interface Enact (V1-A, étape 3) : coquille de l'application, contrat des écrans et outillage de
- * construction. Ces contrôles portent sur la **source** de l'interface (le bundle `ui/dist` est
+ * Interface Enact (V1-A, étape 3, et tranche V1-B/VOD autorisée) : coquille, écrans et outillage.
+ * Ces contrôles portent sur la **source** de l'interface (le bundle `ui/dist` est
  * reconstruit par `npm run build:ui` et n'est pas versionné) : ils garantissent que la livraison
  * contient bien les écrans, le pont LS2 et le consentement HTTP clair, sans dépendre d'un build.
  */
-harness.describe('Interface Enact (V1-A) : coquille, ecrans et outillage', function () {
+harness.describe('Interface Enact (V1-A + tranche V1-B/VOD) : coquille, ecrans et outillage', function () {
   var RACINE = path.join(__dirname, '..');
   var UI = path.join(RACINE, 'ui');
 
@@ -689,6 +689,26 @@ harness.describe('Interface Enact (V1-A) : coquille, ecrans et outillage', funct
     assert.ok(live.indexOf('cursor: curseur') !== -1 && live.indexOf('page.cursor') !== -1, 'pagination par curseur');
     assert.ok(live.indexOf('onScrollStop') !== -1, 'page suivante chargee a la demande');
     assert.ok(live.indexOf('lancer({') !== -1, 'OK lance la lecture sans quitter la section');
+  });
+
+  harness.it('VOD : grille virtualisée, pagination, fiche modal et retour au panneau', function () {
+    var vod = sansCommentaires(lire(path.join('ui', 'src', 'views', 'Vod.js')));
+    assert.ok(vod.indexOf(".getCategories(profileId, 'vod')") !== -1, 'catégories VOD déjà indexées');
+    assert.ok(vod.indexOf("contentType: 'vod'") !== -1 && vod.indexOf("order: 'source'") !== -1, 'pages VOD de la catégorie et ordre fournisseur');
+    assert.ok(vod.indexOf('VirtualGridList') !== -1 && vod.indexOf('itemSize={{minWidth: ri.scale(250)') !== -1, 'grille virtualisée');
+    assert.ok(vod.indexOf('onScrollStop={surArretDefilement}') !== -1 && vod.indexOf('page.cursor') !== -1, 'pagination à l approche de la fin');
+    assert.ok(vod.indexOf(".getDetails(profil.profilId, 'vod', film.ref)") !== -1, 'fiche chargée à la demande');
+    assert.ok(vod.indexOf('spotlightRestrict="self-only"') !== -1 && vod.indexOf('onClose={fermerFiche}') !== -1, 'modalité sans focus derrière');
+    assert.ok(vod.indexOf("evenement.keyCode !== 461") !== -1 && vod.indexOf('fermerFiche();') !== -1, 'Retour télécommande ferme la fiche');
+    assert.ok(vod.indexOf("contentType: 'vod'") !== -1 && vod.indexOf('lancer({') !== -1, 'lecture transmise au lecteur VOD');
+    assert.equal(/service\.(search|getBuckets|getFavorites|getPlayback|epg)\s*\(/i.test(vod), false, 'aucune fonction V1-B hors périmètre');
+
+    var reglages = sansCommentaires(lire(path.join('ui', 'src', 'views', 'Reglages.js')));
+    assert.ok(reglages.indexOf('Importer (VOD)') !== -1 && reglages.indexOf('const importerVOD') !== -1, 'import VOD distinct de live');
+    assert.ok(reglages.indexOf('contentType: type') !== -1 && reglages.indexOf("importer('vod')") !== -1, 'type vod transmis sans lancer d import automatiquement');
+    assert.ok(reglages.indexOf('notifierImportVOD()') !== -1, 'le catalogue VOD se rafraîchit après réussite');
+    var app = lire(path.join('ui', 'src', 'App', 'App.js'));
+    assert.ok(app.indexOf('revisionVOD') !== -1 && app.indexOf('notifierImportVOD') !== -1, 'retour à VOD après import invalide la page en cache');
   });
 
   harness.it('lecteur : un seul <video> natif alimente par resolveStream()', function () {
