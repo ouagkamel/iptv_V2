@@ -1,6 +1,6 @@
 'use strict';
 
-// Profil de test par défaut de 0.1.18, intégré au dépôt sur demande explicite de l’utilisateur.
+// Profil de test par défaut, introduit en 0.1.18 et intégré au dépôt sur demande explicite de l’utilisateur.
 /*
  * Réglages utilise le premier élément de cette liste comme source initiale. Le formulaire déduit
  * les champs depuis cette déclaration; le nom explicite apparaît à l'écran et dans les étiquettes

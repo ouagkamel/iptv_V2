@@ -214,15 +214,31 @@ function piecesJointes(version) {
   });
 }
 
+/** Le premier titre Markdown devient le nom GitHub; le corps conserve le reste des notes. */
+function metadataRelease(notes, balise) {
+  var lignes = notes.split(/\r?\n/);
+  var indexTitre = -1;
+  for (var index = 0; index < lignes.length; index += 1) {
+    if (/^#\s+/.test(lignes[index])) {
+      indexTitre = index;
+      break;
+    }
+  }
+  if (indexTitre === -1) return { name: balise, body: notes };
+  var nom = lignes[indexTitre].replace(/^#\s+/, '').trim();
+  lignes.splice(indexTitre, 1);
+  return { name: nom || balise, body: lignes.join('\n').replace(/^\s+/, '') };
+}
+
 function creer(balise, version, notes) {
   verifierSansSecrets(version);
   piecesJointes(version).filter(function (f) { return /\.ipk$/.test(f); }).forEach(verifierIpkSansIdentifiants);
-  var corps = lire(notes);
+  var meta = metadataRelease(lire(notes), balise);
   return appel('POST', '/repos/' + REPO + '/releases', {
     tag_name: balise,
     target_commitish: 'main',
-    name: balise + ' — paquet de diagnostic (phase 0A)',
-    body: corps,
+    name: meta.name,
+    body: meta.body,
     draft: false,
     prerelease: true
   }).then(function (release) {
@@ -274,4 +290,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { piecesJointes: piecesJointes, refusIpk: refusIpk };
+module.exports = { piecesJointes: piecesJointes, refusIpk: refusIpk, metadataRelease: metadataRelease };

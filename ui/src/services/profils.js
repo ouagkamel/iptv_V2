@@ -4,7 +4,7 @@
  * Sources préconfigurées de l'application (§3.5) — **module pur**, testable sous Node.
  *
  * Même mécanisme que la page de diagnostic : `window.iptvProfils` est fourni par `profils.js`.
- * En 0.1.18, le profil de test est le choix par défaut; les essais locaux peuvent le remplacer par
+ * Introduit en 0.1.18, le profil de test reste le choix par défaut; les essais locaux peuvent le remplacer par
  * `secrets.local/profils.js`. Les paquets publiables doivent être construits avec
  * `IPTV_SANS_SOURCES=1`, et la publication refuse toute archive qui déclare une source.
  */

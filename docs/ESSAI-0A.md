@@ -1,4 +1,4 @@
-# Essai 0A — téléviseur LG webOS 6+ (version 0.1.18)
+# Essai TV LG webOS 6+ — socle 0A et parcours VOD (version 0.1.19)
 
 Feuille de route à exécuter **devant la TV**. Elle prouve le critère bloquant de la phase 0 :
 le socle applicatif tient sur un vrai téléviseur (service node, LS2, DB8, stockage privé,
@@ -12,9 +12,9 @@ Durée : ~20 min la première fois. Aucune commande de ce document ne publie quo
 
 | Pièce | Où |
 |---|---|
-| Paquet d'**essai** (source de test préconfigurée) | `release/local/com.ouagkamel.app.iptvplayer_0.1.18_all.ipk` |
+| Paquet d'**essai** (source de test préconfigurée) | `release/local/com.ouagkamel.app.iptvplayer_0.1.19_all.ipk` |
 | Mode d'emploi court livré avec le banc | `release/local/LISEZ-MOI-ESSAI.txt` |
-| Pack simulateur (banc hors TV) | `release/local/0.1.18-simulateur-source.zip` |
+| Pack simulateur (banc hors TV) | `release/local/0.1.19-simulateur-source.zip` |
 
 - [ ] Outillage LG installé : `npm i -g @webosose/ares-cli`
 - [ ] TV **webOS 6 ou plus**, sur le réseau local, application **Developer Mode** activée
@@ -23,7 +23,7 @@ Durée : ~20 min la première fois. Aucune commande de ce document ne publie quo
 - [ ] Rien d'autre n'est nécessaire : le paquet d'essai embarque déjà le pont LS2, le service
       complet et la source de test (champs préremplis dans l'interface).
 
-**Correctif D-46 (introduit en 0.1.17, toujours présent en 0.1.18) à contrôler ici :** DB8 exige `_rev` pour mettre à jour un objet existant. La progression d’import réécrit une même ligne de job ; le parcours doit aller jusqu’à `done`, sans `-3960` (« _rev must be specified ») ni `-3961` (révision périmée).
+**Correctif D-46 (introduit en 0.1.17, toujours présent en 0.1.19) à contrôler ici :** DB8 exige `_rev` pour mettre à jour un objet existant. La progression d’import réécrit une même ligne de job ; le parcours doit aller jusqu’à `done`, sans `-3960` (« _rev must be specified ») ni `-3961` (révision périmée).
 
 ⚠️ Le paquet d'essai contient les identifiants du **compte de test**. Il ne se publie pas, ne se
 pousse pas, ne se partage pas. À la fin de la campagne, le désinstaller de la TV
@@ -34,7 +34,7 @@ pousse pas, ne se partage pas. À la fin de la campagne, le désinstaller de la 
 ```bash
 ares-setup-device --add tv --info "host=<IP de la TV>" --passphrase   # la TV affiche la phrase
 ares-device   --device tv --system-info                               # doit répondre : mode développeur visible
-ares-install  --device tv release/local/com.ouagkamel.app.iptvplayer_0.1.18_all.ipk
+ares-install  --device tv release/local/com.ouagkamel.app.iptvplayer_0.1.19_all.ipk
 ares-launch   --device tv com.ouagkamel.app.iptvplayer
 ares-log      --device tv --follow                                    # dans un second terminal
 ```
@@ -80,6 +80,23 @@ Réponses DB8 à recopier telles quelles — c'est ainsi que se tranchent les in
 | 5 | **Touche Back (461)** : une pression = un niveau ; à la racine | lecteur → liste → accueil → sortie ; comportement à la racine à noter |
 | 6 | Clavier virtuel (nom de profil ou saisie manuelle) | clavier de la plateforme affiché, saisie reportée dans le champ |
 
+### Parcours VOD livré en 0.1.19
+
+Ce parcours vérifie uniquement les catégories, la grille paginée/virtualisée et les fiches. Il ne
+qualifie pas le lecteur ni le fournisseur : aucun import ni essai TV n'est réputé effectué par la
+publication.
+
+| # | Action | Preuve à relever |
+|---|---|---|
+| 1 | Réglages → « Importer (VOD) » | import séparé de Live TV, progression jusqu'à réussite et nombre d'éléments |
+| 2 | Films → catégories | catégories affichées depuis l'index VOD |
+| 3 | Ouvrir une catégorie et parcourir la grille au D-pad | tuiles/posters, focus visible, pagination sans blocage |
+| 4 | Ouvrir une fiche puis Retour | titre et métadonnées disponibles; Retour ferme la fiche et rend le focus à la grille |
+| 5 | Bouton « Lire » (facultatif) | lancement du lecteur existant; relever le message, l'image et le son sans conclure à une qualification 0B |
+
+Hors périmètre de cette tranche : recherche indexée, saut alphabétique, favoris, reprise, EPG et séries.
+Ne pas lancer l'import sans l'accord du propriétaire du portail et un compte autorisé.
+
 Si le lecteur **n'ouvre pas** l'image, noter le message exact : depuis 0.1.15 il **nomme les
 formats essayés** (`hls`, `ts`, et `mse` depuis 0.1.16). Ce n'est pas un défaut à corriger ici :
 c'est la mesure de la 0B (et la TV doit lire par la voie native — le repli MSE n'est pas destiné
@@ -108,7 +125,7 @@ c'est la mesure de la 0B (et la TV doit lire par la voie native — le repli MSE
 
 ```
 TV : marque/modèle .........  webOS .........  (Réglages TV > Général > À propos)
-Version installée (ares-install --device tv --listfull) : 0.1.18  [ ] oui  [ ] non  -> .........
+Version installée (ares-install --device tv --listfull) : 0.1.19  [ ] oui  [ ] non  -> .........
 
 Diagnostic du service
   runtime.node ................  runtime.openssl (ou version firmware) ................

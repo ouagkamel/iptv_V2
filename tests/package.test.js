@@ -19,6 +19,7 @@ var path = require('path');
 var vm = require('vm');
 var outilDist = require('../tools/make-dist');
 var outilSimulateur = require('../tools/stage-simulator');
+var outilPublication = require('../tools/publish-release');
 var formatLib = require('../src/app/format');
 var mainLib = require(path.join(
   __dirname,
@@ -612,6 +613,15 @@ harness.describe('Sources preconfigurees : profil de test et neutralisation des 
     var outil = fs.readFileSync(path.join(RACINE, 'tools', 'publish-release.js'), 'utf8');
     assert.ok(outil.indexOf('verifierSansSecrets') !== -1, 'controle present');
     assert.ok(outil.indexOf('Publication refusee') !== -1, 'refus explicite');
+  });
+
+  harness.it('le nom et le corps GitHub suivent les notes sans titre de phase hardcode', function () {
+    var meta = outilPublication.metadataRelease('# 0.1.19 — VOD : grille et fiches (pré-release)\n\nNotes detaillees.\n', 'v0.1.19-vod');
+    assert.equal(meta.name, '0.1.19 — VOD : grille et fiches (pré-release)', 'nom derive du premier titre');
+    assert.equal(meta.body, 'Notes detaillees.\n', 'titre retire du corps et contenu conserve');
+    var sansTitre = outilPublication.metadataRelease('Notes sans titre.', 'v0.1.19-vod');
+    assert.equal(sansTitre.name, 'v0.1.19-vod', 'repli sur le tag');
+    assert.equal(sansTitre.body, 'Notes sans titre.', 'corps conserve sans titre');
   });
 });
 

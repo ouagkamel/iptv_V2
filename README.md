@@ -11,14 +11,14 @@ Ce dépôt implémente la spécification `docs/SPEC-v1.3.md` **par incréments**
 | Socle | contrats `§15.1`, crypto d'index `§15.3`, index/recherche `§15.2`, machines d'état `§15.5`, outillage CI | **livré (étape 1)** |
 | Service | client HTTP `§2.5`, parseur JSON incrémental, DB8 `§2.4`, adaptateur Xtream `§5.1`, import reprenable `§15.5`, protocole LS2 `§15.4`, diagnostic local | **livré (étape 2)** |
 | V1-A | Xtream (profil, test) + Live TV (catégories, chaînes) + lecteur + `resolveStream()` + diagnostic local | **livré (étape 3)** : service complet + **interface Enact** (`ui/`) — qualification lecteur (§0B) à faire sur TV |
-| V1-B | EPG, favoris, reprise, VOD (grille, fiche, recherche indexée, saut alphabétique) | **partiel, en cours** — tranche autorisée : catégories, grille virtualisée et fiches VOD; import VOD séparé dans Réglages. Recherche, saut alphabétique, favoris, reprise et EPG restent à faire |
+| V1-B | EPG, favoris, reprise, VOD (grille, fiche, recherche indexée, saut alphabétique) | **partiellement livré en pré-release 0.1.19** — catégories, grille virtualisée et fiches VOD; import VOD séparé dans Réglages. Recherche, saut alphabétique, favoris, reprise et EPG restent hors périmètre; aucun essai TV VOD n'est consigné |
 | V1-C | Séries (saisons, épisodes) + navigation globale persistante | à venir |
 | V1-D | M3U (second moteur, identité `logicalKey`/`variantKey`), gros catalogues, index chiffré, reprise d'import | à venir |
 
 L'état réel de chaque brique, les écarts et ce qui reste **à valider sur téléviseur** sont tenus à
 jour dans `docs/PLAN.md` et `docs/JOURNAL.md`.
 
-**Dernière version publiée :** 0.1.18 ([tag `v0.1.18-phase0a`](https://github.com/ouagkamel/iptv_V2/tree/v0.1.18-phase0a); [notes de version](docs/RELEASE-0.1.18.md)). La tranche VOD décrite ci-dessus est un travail de développement non publié.
+**Dernière pré-release publiée :** 0.1.19 — VOD, grille et fiches ([tag `v0.1.19-vod`](https://github.com/ouagkamel/iptv_V2/tree/v0.1.19-vod); [release GitHub](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.19-vod); [notes](docs/RELEASE-0.1.19.md)). L'artefact est destiné à l'essai manuel; ni import fournisseur ni test TV VOD n'ont été effectués ici.
 
 ## Choix techniques (imposés par la spécification §2 et §14)
 
@@ -64,18 +64,18 @@ Installation en mode développeur :
 
 ```bash
 npm i -g @webosose/ares-cli      # outillage LG (ares-package, ares-install, ares-launch)
-IPTV_SANS_SOURCES=1 npm run dist # compile et assemble le paquet publiable sans source
-ares-install --device tv release/com.ouagkamel.app.iptvplayer_0.1.18_all.ipk
+IPTV_SANS_SOURCES=1 npm run dist # compile le paquet public sans source dans dist/<version>/
+ares-install --device tv dist/0.1.19/com.ouagkamel.app.iptvplayer_0.1.19_all.ipk
 
-# Pour l'essai avec les champs préremplis :
+# Pour l'essai local avec les champs préremplis (ne pas publier cet IPK) :
 npm run dist:local
-ares-install --device tv release/local/com.ouagkamel.app.iptvplayer_0.1.18_all.ipk
+ares-install --device tv release/local/com.ouagkamel.app.iptvplayer_0.1.19_all.ipk
 ```
 
-**Dernière publication binaire GitHub (pré-release 0A)** :
-[`v0.1.18-phase0a`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.18-phase0a), avec l'`.ipk`,
-l'archive `dist/`, le pack simulateur et les sommes SHA-256. Le paquet téléchargeable est neutralisé
-(sans profil préconfiguré); le profil par défaut demeure dans le code source versionné.
+**Dernière publication binaire GitHub (pré-release VOD)** :
+[`v0.1.19-vod`](https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.19-vod), avec l'`.ipk`,
+`0.1.19.zip`, le pack simulateur et `SHA256SUMS.txt`. Le paquet public est neutralisé (sans profil
+préconfiguré); le profil de test versionné dans le dépôt n'est pas embarqué dans ces pièces.
 
 `IPTV_SANS_SOURCES=1 npm run dist` produit la **livraison téléchargeable publiable** : `dist/<version>/`
 contient l'`.ipk` sans source préconfigurée, le contenu du paquet dépaqueté, `SHA256SUMS.txt` et un
@@ -83,12 +83,11 @@ contient l'`.ipk` sans source préconfigurée, le contenu du paquet dépaqueté,
 `npm run dist:local` fabrique séparément le paquet d'essai avec le profil prérempli dans
 `release/local/`; ne pas joindre ces artefacts à une publication.
 
-La pré-release publiée v0.1.18 contient le **service complet**, l'**interface Enact de V1-A** (`ui/main.js`) et la
-**page de diagnostic** télécommandable (`diagnostic.html`), qui appelle elle aussi les douze
-commandes LS2 et permet d'exécuter la phase 0A sur TV même si l'interface refuse de démarrer.
-La tranche VOD en développement dans la source n'a pas été intégrée à cet artefact ni republiée;
-elle n'a pas été testée sur TV.
-Le détail des vérifications à faire **sur la TV** (phase 0A/0B, §12) est dans `docs/PHASE-0.md`.
+La pré-release 0.1.19 contient le **service complet**, l'**interface Enact V1-A**, la tranche VOD
+autorisée (catégories, grille et fiches) et la **page de diagnostic** télécommandable. Aucun import
+fournisseur ni essai VOD sur TV réelle n'a été effectué pour cette publication; elle n'est ni une
+qualification média 0B ni une certification LG. Les vérifications à faire **sur la TV** sont dans
+`docs/ESSAI-0A.md` (dont le parcours VOD) et `docs/ESSAI-0B.md`.
 
 Avant la TV, un portail réel peut être éprouvé **hors appareil** avec le service tel qu'il sera
 embarqué (mêmes commandes, mêmes enveloppes, mêmes contrôles) :
@@ -134,4 +133,6 @@ de portail complète.
 
 L'utilisateur doit posséder ou être autorisé à utiliser les sources qu'il configure. L'application
 ne contourne ni DRM, ni abonnement, ni restriction régionale. Le contrôle de distribution LG
-(phase 0, §12) doit être tranché **par écrit** avant de poursuivre au-delà de V1-A.
+(phase 0, §12) reste non résolu : cette pré-release destinée à un essai manuel n'est ni une
+autorisation de distribution large ni une certification. Obtenir la réponse écrite de LG avant toute
+distribution de production.

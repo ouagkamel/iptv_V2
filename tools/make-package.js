@@ -172,7 +172,7 @@ function main() {
       ' octets)'
   );
 
-  // 3bis) profil préconfiguré : le dépôt porte le compte de test par défaut en 0.1.18.
+  // 3bis) profil préconfiguré : le dépôt porte le profil de test par défaut, introduit en 0.1.18.
   // `IPTV_SANS_SOURCES=1` le neutralise explicitement pour les livraisons publiques; sinon, le
   // fichier local secrets.local/profils.js (s'il existe) remplace le profil versionné pour l'essai.
   var sourceLocales = path.join(ROOT, 'secrets.local', 'profils.js');
