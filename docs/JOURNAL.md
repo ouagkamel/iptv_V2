@@ -1,5 +1,11 @@
 # Journal d'exécution
 
+## 2026-11-02 — pré-release GitHub VOD 0.1.19 publiée
+
+Le tag `v0.1.19-vod` pointe sur `e7bdb1c` et la pré-release GitHub `https://github.com/ouagkamel/iptv_V2/releases/tag/v0.1.19-vod` est publiée (ID `431208825`) depuis la branche `main`. Quatre pièces ont été téléversées et relues sur GitHub : `.ipk` (1 293 142 octets), `0.1.19.zip`, `0.1.19-simulateur.zip` et `SHA256SUMS.txt`. Les pièces publiques ont été construites avec `IPTV_SANS_SOURCES=1`; le `.ipk`, le ZIP `dist` et le pack simulateur ont été inspectés, les profils y sont neutralisés et les sommes/integrités d'archive passent. SHA-256 du `.ipk` : `648f0f3b418c085a03ab5453900f650e5462ae5a1b5c63c72a2e379718e1af13`.
+
+`npm run verify` : 266 tests, 0 échec; `npm --prefix ui run lint`, `npm run build:ui` et `git diff --check` réussis. Le paquet d'essai prérempli demeure distinct dans `release/local/` et n'est pas publié. Aucun import de portail, test fournisseur ni essai VOD sur TV réelle n'a été effectué; ce résultat ne constitue ni une validation TV ni une certification LG. Le go/no-go de distribution LG reste distinct et non résolu.
+
 ## 2026-11-01 — publication de la pré-release GitHub 0.1.18
 
 Le tag `v0.1.18-phase0a` est publié comme pré-release GitHub avec quatre pièces jointes : `.ipk`, archive `dist`, pack simulateur et `SHA256SUMS.txt`. Les artefacts de publication ont été construits avec `IPTV_SANS_SOURCES=1`; le profil est absent des paquets et le contrôle `tools/publish-release.js` les accepte. Le paquet d'essai prérempli reste séparé dans `release/local/`. La suite `npm run verify` a réussi (contrôle Node 8.12, dépendances, typecheck; 261 tests, 0 échec). Aucun test de connexion au portail, import live, ni essai 0B sur téléviseur n'a été effectué à cette étape.
